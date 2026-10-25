@@ -19,6 +19,26 @@ pub fn mcp_bridge(info: Option<std::path::PathBuf>) {
 
 pub fn run() {
     tauri::Builder::default()
+        // Muss das erste Plugin sein: Ein zweiter Start reicht seine Pfade an die laufende App weiter.
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            let paths: Vec<std::path::PathBuf> = args
+                .iter()
+                .skip(1)
+                .map(std::path::PathBuf::from)
+                .filter(|p| p.exists())
+                .collect();
+            log::info!("Zweiter Start, {} Pfad(e) übergeben", paths.len());
+            if let Some(path) = paths.into_iter().next() {
+                *app.state::<state::AppState>().pending_open.lock().unwrap() = Some(path.clone());
+                let _ = app.emit("open-path", path);
+            }
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }))
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(logging::plugin())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
