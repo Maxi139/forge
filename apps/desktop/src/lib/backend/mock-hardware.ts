@@ -11,11 +11,14 @@ import type {
   BuildEvent,
   BuildOutcome,
   DeviceInfo,
+  ExampleInfo,
   FlashResult,
   LibraryInfo,
   LibraryProgress,
   LibrarySearchHit,
   McpStatus,
+  MemoryDetail,
+  OutdatedItem,
   SearchOptions,
   SearchResult,
   ModelList,
@@ -54,6 +57,68 @@ export const MOCK_DEVICE: DeviceInfo = {
   mac: "7c:df:a1:12:34:56",
 };
 
+/** Ein Board im WLAN, das ArduinoOTA anbietet. */
+export const MOCK_NET_DEVICE: DeviceInfo = {
+  id: "net:esp32s3-wohnzimmer",
+  port: "esp32s3-wohnzimmer.local",
+  vid: 0,
+  pid: 0,
+  serial: null,
+  product: "ESP32S3 Dev Module",
+  manufacturer: null,
+  bridge: "network",
+  label: "ESP32 (WLAN)",
+  likelyEsp: true,
+  mac: null,
+  transport: "network",
+  host: "192.168.1.42",
+  otaPort: 3232,
+  auth: true,
+};
+
+const BLINK_EXAMPLE = "void setup() {\n  pinMode(LED_BUILTIN, OUTPUT);\n}\n\nvoid loop() {\n  digitalWrite(LED_BUILTIN, HIGH);\n  delay(1000);\n  digitalWrite(LED_BUILTIN, LOW);\n  delay(1000);\n}\n";
+
+/** Beispiele im Vorschaumodus: Pfad zu Quelltext. */
+export const MOCK_EXAMPLE_SOURCES: Record<string, string> = {
+  "/mock/esp32/libraries/WiFi/examples/WiFiScan/WiFiScan.ino": '#include "WiFi.h"\n\nvoid setup() {\n  Serial.begin(115200);\n  WiFi.mode(WIFI_STA);\n}\n\nvoid loop() {\n  int n = WiFi.scanNetworks();\n  Serial.printf("%d Netzwerke\\n", n);\n  delay(5000);\n}\n',
+  "/mock/esp32/libraries/WiFi/examples/WiFiClient/WiFiClient.ino": '#include <WiFi.h>\n\nvoid setup() {\n  Serial.begin(115200);\n}\n\nvoid loop() {\n}\n',
+  "/mock/esp32/libraries/ESP32/examples/ChipID/GetChipID/GetChipID.ino": "void setup() {\n  Serial.begin(115200);\n}\n\nvoid loop() {\n  Serial.printf(\"%llx\\n\", ESP.getEfuseMac());\n  delay(3000);\n}\n",
+  "/mock/esp32/libraries/ArduinoOTA/examples/BasicOTA/BasicOTA.ino": '#include <ArduinoOTA.h>\n\nvoid setup() {\n  ArduinoOTA.begin();\n}\n\nvoid loop() {\n  ArduinoOTA.handle();\n}\n',
+  "/mock/libraries/Adafruit_NeoPixel/examples/simple/simple.ino": "#include <Adafruit_NeoPixel.h>\n\nAdafruit_NeoPixel strip(1, 48, NEO_GRB + NEO_KHZ800);\n\nvoid setup() {\n  strip.begin();\n}\n\nvoid loop() {\n  strip.setPixelColor(0, strip.Color(0, 40, 0));\n  strip.show();\n}\n",
+  "/mock/libraries/Adafruit_NeoPixel/examples/strandtest/strandtest.ino": BLINK_EXAMPLE,
+  "/mock/libraries/ArduinoJson/examples/JsonParserExample/JsonParserExample.ino": '#include <ArduinoJson.h>\n\nvoid setup() {\n  Serial.begin(115200);\n}\n\nvoid loop() {\n}\n',
+};
+
+const MOCK_EXAMPLES: ExampleInfo[] = Object.keys(MOCK_EXAMPLE_SOURCES)
+  .map((path) => {
+    const parts = path.split("/");
+    const core = path.startsWith("/mock/esp32/");
+    const library = parts[parts.indexOf("libraries") + 1];
+    return { library: library.replace(/_/g, " "), name: parts[parts.length - 2], path: path.slice(0, path.lastIndexOf("/")), source: core ? "core" : "library" } as ExampleInfo;
+  })
+  .sort((a, b) => Number(a.source !== "core") - Number(b.source !== "core") || a.library.localeCompare(b.library) || a.name.localeCompare(b.name));
+
+const MOCK_MEMORY: MemoryDetail = {
+  groups: [
+    { label: "IRAM", size: 84_019, sections: [[".iram0.vectors", 1028], [".iram0.text", 82_991]] },
+    { label: "DRAM", size: 47_381, sections: [[".dram0.data", 23_933], [".dram0.bss", 23_448]] },
+    { label: "Flash-Code", size: 692_652, sections: [[".flash.text", 692_652]] },
+    { label: "Rodata", size: 125_108, sections: [[".flash.appdesc", 256], [".flash.rodata", 114_324], [".eh_frame", 10_528]] },
+  ],
+  symbols: [
+    { name: "WiFiGenericClass::_eventCallback(void*, esp_event_base_t, int, void*)", size: 18_240, kind: "code" },
+    { name: "mbedtls_ssl_handshake_client_step", size: 14_912, kind: "code" },
+    { name: "lwip_pbuf_pool", size: 12_288, kind: "bss" },
+    { name: "Adafruit_NeoPixel::show()", size: 6_904, kind: "code" },
+    { name: "font_5x7", size: 5_120, kind: "rodata" },
+    { name: "Serial1", size: 4_328, kind: "data" },
+    { name: "loopTask(void*)", size: 3_776, kind: "code" },
+    { name: "wifi_rx_buffer", size: 3_200, kind: "bss" },
+    { name: "strip", size: 1_104, kind: "data" },
+    { name: "setup()", size: 612, kind: "code" },
+  ],
+};
+
 const BOARDS: BoardEntry[] = [
   { name: "ESP32S3 Dev Module", fqbn: "esp32:esp32:esp32s3", platform: "esp32:esp32" },
   { name: "ESP32 Dev Module", fqbn: "esp32:esp32:esp32", platform: "esp32:esp32" },
@@ -76,7 +141,7 @@ const OPTIONS: BoardOption[] = [
 const LIBS: LibraryInfo[] = [
   { name: "Adafruit NeoPixel", version: "1.12.3", author: "Adafruit", sentence: "Steuert WS2812-LEDs und kompatible Streifen.", website: "https://github.com/adafruit/Adafruit_NeoPixel", location: "user", providesIncludes: ["Adafruit_NeoPixel.h"], latest: null },
   { name: "ArduinoJson", version: "7.0.4", author: "Benoit Blanchon", sentence: "JSON-Bibliothek für eingebettete Systeme.", website: "https://arduinojson.org", location: "user", providesIncludes: ["ArduinoJson.h"], latest: "7.2.1" },
-  { name: "NimBLE-Arduino", version: "2.5.1", author: "h2zero", sentence: "Bluetooth Low Energy für ESP32.", website: "https://github.com/h2zero/NimBLE-Arduino", location: "user", providesIncludes: ["NimBLEDevice.h"], latest: null },
+  { name: "NimBLE-Arduino", version: "2.5.1", author: "h2zero", sentence: "Bluetooth Low Energy für ESP32.", website: "https://github.com/h2zero/NimBLE-Arduino", location: "user", providesIncludes: ["NimBLEDevice.h"], latest: "2.6.0" },
 ];
 
 const CATALOG: LibrarySearchHit[] = [
@@ -185,6 +250,15 @@ type HardwareApi = Pick<
   | "aiThreadReopen"
   | "aiFix"
   | "aiTask"
+  | "examples"
+  | "coreUpgrade"
+  | "refreshIndexIfStale"
+  | "outdatedLibraries"
+  | "pickLibraryZip"
+  | "installLibraryZip"
+  | "memoryDetail"
+  | "otaPasswordSet"
+  | "setOtaPassword"
 >;
 
 export function createMockHardware(readProject: () => Record<string, string>, opts: { devicesAtStart?: boolean; speed?: number; secretNames?: string[] } = {}): { api: HardwareApi; control: MockControl } {
@@ -196,7 +270,9 @@ export function createMockHardware(readProject: () => Record<string, string>, op
   const mstate = new Emitter<MonitorState>();
   const libProgress = new Emitter<LibraryProgress>();
 
-  let devices: DeviceInfo[] = opts.devicesAtStart === false ? [] : [MOCK_DEVICE];
+  let devices: DeviceInfo[] = opts.devicesAtStart === false ? [] : [MOCK_DEVICE, MOCK_NET_DEVICE];
+  const core = { installed: "3.2.0", latest: "3.3.12" };
+  const otaPasswords = new Set<string>();
   let lastBuildHash = "";
   const flashed = new Map<string, string>();
   let installed = [...LIBS];
@@ -260,8 +336,29 @@ export function createMockHardware(readProject: () => Record<string, string>, op
     return { ...base, status: "built", durationMs: 1900, sizes, partitions };
   }
 
+  async function flashOverNetwork(args: Parameters<Backend["flash"]>[0]): Promise<FlashResult> {
+    const outcome = await build(false);
+    if (outcome.status === "failed") return { status: "buildFailed", build: outcome } as FlashResult;
+    const key = args.deviceId;
+    if (key && !args.force && flashed.get(key) === outcome.hash) return { status: "alreadyCurrent", build: outcome };
+    if (devices.find((d) => d.id === key)?.auth && !otaPasswords.has(key ?? "")) throw new Error("Das Gerät verlangt ein OTA-Passwort. Trage es im Geräte-Bereich ein.");
+    phase(2, 0.3, "Verbinde");
+    out(`Übertrage an ${args.target?.kind === "network" ? `${args.target.host}:${args.target.port}` : ""}`);
+    await sleep(300 * speed);
+    phase(2, 1, "Verbunden");
+    phase(3, 1, "Kein Löschen nötig");
+    for (let p = 0; p <= 20; p++) {
+      if (cancelled) throw new Error("Abgebrochen.");
+      phase(4, p / 20, "Schreibe");
+      await sleep(70 * speed);
+    }
+    phase(5, 1, "Neustart");
+    if (key) flashed.set(key, outcome.hash);
+    return { status: "flashed", build: outcome, flash: { durationMs: 6100, bytes: 288_462, chip: null, mac: null } };
+  }
+
   const api: HardwareApi = {
-    toolchainStatus: async () => ({ arduinoCli: "1.5.1", esp32Core: "3.3.12", esptool: true, error: null }),
+    toolchainStatus: async () => ({ arduinoCli: "1.5.1", esp32Core: core.installed, esptool: true, error: null, esp32CoreLatest: core.latest }),
     toolchainSetup: async () => {
       for (const [i, l] of ["Trage Espressif-Quelle ein", "Lade Paketliste", "Installiere ESP32-Core"].entries()) {
         toolchain.emit({ line: l, fraction: null });
@@ -284,6 +381,7 @@ export function createMockHardware(readProject: () => Record<string, string>, op
     build: (_b, force) => build(force),
     cancelBuild: async () => void (cancelled = true),
     flash: async (args) => {
+      if (args.target?.kind === "network") return flashOverNetwork(args);
       const outcome = await build(false);
       if (outcome.status === "failed") return { status: "buildFailed", build: outcome } as FlashResult;
       const usedNames = [...Object.values(readProject()).join("\n").matchAll(/Secret\("([A-Za-z0-9_]{1,15})"\)/g)].map((m) => m[1]);
@@ -346,9 +444,29 @@ export function createMockHardware(readProject: () => Record<string, string>, op
     uninstallLibrary: async (name) => void (installed = installed.filter((i) => i.name !== name)),
     upgradeLibrary: async (name) => {
       const hit = CATALOG.find((l) => l.name === name);
-      installed = installed.map((i) => (i.name === name ? { ...i, version: hit?.latest ?? i.version, latest: null } : i));
+      installed = installed.map((i) => (i.name === name ? { ...i, version: i.latest ?? hit?.latest ?? i.version, latest: null } : i));
     },
     onLibraryProgress: libProgress.on,
+    outdatedLibraries: async (): Promise<OutdatedItem[]> => installed.filter((i) => i.latest).map((i) => ({ name: i.name, installed: i.version, latest: i.latest! })),
+    pickLibraryZip: async () => "/Users/demo/Downloads/Ultraschall-Sensor-1.2.0.zip",
+    installLibraryZip: async (path) => {
+      const name = (path.split("/").pop() ?? "Bibliothek").replace(/\.zip$/i, "").replace(/-\d+(\.\d+)*$/, "");
+      for (let p = 0; p <= 5; p++) (libProgress.emit({ name, line: `${name} wird entpackt`, fraction: p / 5 }), await sleep(90 * speed));
+      installed = [...installed.filter((i) => i.name !== name), { name, version: "1.2.0", author: "", sentence: "Aus ZIP-Datei installiert.", website: "", location: "user", providesIncludes: [], latest: null }];
+    },
+    examples: async (fqbn) => (fqbn && !fqbn.startsWith("esp32:") ? [] : MOCK_EXAMPLES),
+    coreUpgrade: async () => {
+      for (let p = 0; p <= 10; p++) (toolchain.emit({ line: `esp32:esp32@${core.latest} wird geladen`, fraction: p / 10 }), await sleep(80 * speed));
+      core.installed = core.latest;
+    },
+    refreshIndexIfStale: async () => false,
+    memoryDetail: async () => {
+      if (!lastBuildHash) throw new Error("Es gibt noch keinen Build. Kompiliere zuerst.");
+      await sleep(120 * speed);
+      return MOCK_MEMORY;
+    },
+    otaPasswordSet: async (id) => otaPasswords.has(id),
+    setOtaPassword: async (id, password) => void (password ? otaPasswords.add(id) : otaPasswords.delete(id)),
 
     search: async (query: string, o: SearchOptions, overrides: Record<string, string>): Promise<SearchResult> => {
       if (!query) return { hits: [], truncated: false };

@@ -13,6 +13,9 @@ import type {
   BuildEvent,
   BuildOutcome,
   ChipProbe,
+  ExampleInfo,
+  MemoryDetail,
+  OutdatedItem,
   FbuildStatus,
   CheckOutput,
   CreateProjectRequest,
@@ -184,4 +187,21 @@ export interface Backend {
 
   /* Suche */
   search(query: string, options: SearchOptions, overrides: Record<string, string>): Promise<SearchResult>;
+
+  /* Hardware und Build */
+  /** Beispiele von Core und Bibliotheken, mit Board nur die passenden. */
+  examples(fqbn?: string): Promise<ExampleInfo[]>;
+  /** Öffnet eine Kopie des Beispiels als neuen Sketch. */
+  openExample(path: string): Promise<ProjectInfo>;
+  /** Aktualisiert den ESP32-Core. Fortschritt über `onToolchainProgress`. */
+  coreUpgrade(): Promise<void>;
+  /** Lädt die Paketliste neu, wenn sie älter als 24 Stunden ist. Gibt zurück, ob sie neu geladen wurde. */
+  refreshIndexIfStale(): Promise<boolean>;
+  outdatedLibraries(): Promise<OutdatedItem[]>;
+  pickLibraryZip(): Promise<string | null>;
+  installLibraryZip(path: string): Promise<void>;
+  /** Abschnitte und größte Symbole des letzten Builds. */
+  memoryDetail(): Promise<MemoryDetail>;
+  otaPasswordSet(deviceId: string): Promise<boolean>;
+  setOtaPassword(deviceId: string, password: string | null): Promise<void>;
 }

@@ -51,6 +51,8 @@ export function buildCommands(): RunnableCommand[] {
     { id: "view.device", group: g.view, label: t.commands.toggleDevice, icon: "device", shortcut: ["⌥", "⌘", "D"], run: () => s.patchLayout({ deviceOpen: !s.layout.deviceOpen }) },
     { id: "view.problems", group: g.view, label: t.commands.openProblems, icon: "warning", run: () => s.setBottomTab("problems") },
     { id: "view.monitor", group: g.view, label: t.commands.openMonitor, icon: "serial", shortcut: ["⇧", "⌘", "M"], run: () => s.setBottomTab("monitor") },
+    { id: "example.open", group: g.file, label: t.examples.command, icon: "file-code", run: () => s.setDialog({ kind: "examples" }) },
+    { id: "library.installZip", group: g.view, label: t.updates.installZip, icon: "library", run: () => void useHardware.getState().installLibraryZip() },
   ];
   return list.filter((c): c is RunnableCommand => c !== false);
 }

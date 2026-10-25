@@ -18,6 +18,9 @@ import type {
   BuildEvent,
   BuildOutcome,
   ChipProbe,
+  ExampleInfo,
+  MemoryDetail,
+  OutdatedItem,
   FbuildStatus,
   CheckOutput,
   CreateProjectRequest,
@@ -196,5 +199,19 @@ export function createTauriBackend(): Backend {
     // Projekte aus einer .forgeproj-Datei merken sich die Datei, nicht ihren Arbeitsordner.
     pushRecent: (p) => call<void>("recent_push", { path: p.package ?? p.path, name: p.name, kind: p.kind }),
     removeRecent: (path) => call<void>("recent_remove", { path }),
+
+    examples: (fqbn) => call<ExampleInfo[]>("examples_list", { fqbn: fqbn ?? null }),
+    openExample: (path) => call<ProjectInfo>("example_open", { path }).then(complete),
+    coreUpgrade: () => call<void>("core_upgrade"),
+    refreshIndexIfStale: () => call<boolean>("toolchain_refresh_index"),
+    outdatedLibraries: () => call<OutdatedItem[]>("libraries_outdated"),
+    async pickLibraryZip() {
+      const res = await openDialog({ multiple: false, title: "Bibliothek als ZIP installieren", filters: [{ name: "ZIP-Archiv", extensions: ["zip"] }] });
+      return typeof res === "string" ? res : null;
+    },
+    installLibraryZip: (path) => call<void>("library_install_zip", { path }),
+    memoryDetail: () => call<MemoryDetail>("build_memory_detail"),
+    otaPasswordSet: (deviceId) => call<boolean>("ota_password_status", { deviceId }),
+    setOtaPassword: (deviceId, password) => call<void>("ota_password_set", { deviceId, password }),
   };
 }

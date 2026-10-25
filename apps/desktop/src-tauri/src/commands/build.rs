@@ -208,6 +208,17 @@ pub struct FlashArgs {
     pub erase_all: bool,
     /// Auch flashen, wenn das Board schon diesen Stand hat.
     pub force: bool,
+    /// Ohne Angabe wird seriell über `port` geflasht.
+    #[serde(default)]
+    pub target: Option<FlashTarget>,
+}
+
+/// Wohin die Firmware geht: über ein Kabel (esptool) oder per WLAN (OTA).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum FlashTarget {
+    Serial { port: String },
+    Network { host: String, port: u16 },
 }
 
 #[derive(Serialize)]
@@ -305,8 +316,19 @@ pub async fn flash_run(
         return Ok(FlashResult::BuildFailed { build: outcome });
     }
 
-    // Secrets aus dem Schlüsselbund. Fehlt etwas, wird nicht geflasht.
     let root = state.root()?;
+    if let Some(FlashTarget::Network { host, port }) = args.target.clone() {
+        return flash_network(&app, &state, &args, outcome, &host, port).await;
+    }
+    let args = FlashArgs {
+        port: match &args.target {
+            Some(FlashTarget::Serial { port }) => port.clone(),
+            _ => args.port.clone(),
+        },
+        ..args
+    };
+
+    // Secrets aus dem Schlüsselbund. Fehlt etwas, wird nicht geflasht.
     let plan = match prepare_secrets(&root, &outcome) {
         Ok(p) => p,
         Err(SecretsError::Missing(names)) => return Ok(FlashResult::SecretsMissing { names }),
@@ -405,6 +427,153 @@ pub async fn flash_run(
         build: outcome,
         flash,
     })
+}
+
+/// Die App-Partition, die per OTA geschrieben wird: die Region bei 0x10000, sonst die letzte.
+fn ota_firmware(build_dir: &std::path::Path) -> Option<PathBuf> {
+    let regions = forge_toolchain::flash::region_files(build_dir);
+    regions
+        .iter()
+        .find(|(off, _)| off.eq_ignore_ascii_case("0x10000"))
+        .or(regions.last())
+        .map(|(_, file)| build_dir.join(file))
+}
+
+/// Update per WLAN: espota-Protokoll in Rust. Nur die App-Partition, die Secrets (NVS) bleiben unberührt.
+async fn flash_network(
+    app: &AppHandle,
+    state: &AppState,
+    args: &FlashArgs,
+    outcome: BuildOutcome,
+    host: &str,
+    port: u16,
+) -> Result<FlashResult, String> {
+    let ip: std::net::IpAddr = host
+        .parse()
+        .map_err(|_| format!("{host} ist keine gültige Adresse."))?;
+    let key = args.device_id.clone();
+    if !args.force
+        && key
+            .as_ref()
+            .is_some_and(|k| store::flashed_hash(app, k).as_deref() == Some(outcome.hash.as_str()))
+    {
+        return Ok(FlashResult::AlreadyCurrent { build: outcome });
+    }
+    let firmware = ota_firmware(&outcome.build_dir)
+        .filter(|p| p.is_file())
+        .ok_or("Der Build enthält keine Firmware. Kompiliere neu.")?;
+    let password = key.as_deref().and_then(super::devices::ota_password);
+    let say = |line: &str| {
+        let _ = app.emit(
+            "build:event",
+            BuildEvent::Output {
+                line: line.into(),
+                level: "info".into(),
+            },
+        );
+    };
+    let root = state.root()?;
+    let (declared, used) = project_secret_names(&root);
+    if !declared.is_empty() || !used.is_empty() {
+        say("Per WLAN wird nur das Programm übertragen. Die Secrets auf dem Board bleiben, wie sie sind.");
+    }
+    say(&format!("Übertrage an {host}:{port}"));
+
+    let phase = |app: &AppHandle, stage: usize, progress: f32, detail: &str| {
+        let _ = app.emit(
+            "build:event",
+            BuildEvent::Phase {
+                stage,
+                progress,
+                detail: detail.into(),
+            },
+        );
+    };
+    phase(app, 2, 0.3, "Verbinde");
+
+    let cancel = Jobs::begin(&state.jobs.build);
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let watcher = {
+        let (stop, cancel) = (stop.clone(), cancel.clone());
+        tokio::spawn(async move {
+            cancel.cancelled().await;
+            stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        })
+    };
+    let started = std::time::Instant::now();
+    let handle = app.clone();
+    let stop_flag = stop.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let mut connected = false;
+        forge_devices::ota::upload(
+            &forge_devices::ota::OtaRequest {
+                ip,
+                port,
+                firmware,
+                password,
+                timeout: std::time::Duration::from_secs(10),
+            },
+            &stop_flag,
+            |p| {
+                let say = |stage: usize, progress: f32, detail: &str| {
+                    let _ = handle.emit(
+                        "build:event",
+                        BuildEvent::Phase {
+                            stage,
+                            progress,
+                            detail: detail.into(),
+                        },
+                    );
+                };
+                if !connected {
+                    connected = true;
+                    say(2, 1.0, "Verbunden");
+                    say(3, 1.0, "Kein Löschen nötig");
+                }
+                say(4, p, "Schreibe");
+            },
+        )
+    })
+    .await
+    .map_err(|e| e.to_string());
+    watcher.abort();
+    let bytes = match result? {
+        Ok(b) => b,
+        Err(forge_devices::ota::OtaError::Cancelled) => {
+            return Err(forge_toolchain::Error::Cancelled.to_string())
+        }
+        Err(e) => return Err(e.to_string()),
+    };
+    phase(app, 5, 1.0, "Neustart");
+    if let Some(k) = &key {
+        store::set_flashed_hash(app, k, &outcome.hash);
+    }
+    Ok(FlashResult::Flashed {
+        build: outcome,
+        flash: FlashOutcome {
+            duration_ms: started.elapsed().as_millis() as u64,
+            bytes,
+            chip: None,
+            mac: None,
+        },
+    })
+}
+
+/// Abschnitte und größte Symbole des letzten Builds.
+#[tauri::command]
+pub async fn build_memory_detail(
+    state: State<'_, AppState>,
+) -> Result<forge_toolchain::memory::MemoryDetail, String> {
+    let dir = state
+        .last_build
+        .lock()
+        .map_err(|_| "Zustand gesperrt".to_string())?
+        .as_ref()
+        .map(|b| b.build_dir.clone())
+        .ok_or("Es gibt noch keinen Build. Kompiliere zuerst.")?;
+    forge_toolchain::memory::memory_detail(&dir)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 pub fn stop_monitor(state: &AppState) -> Option<MonitorSpec> {

@@ -1,5 +1,5 @@
 import type { Backend } from "./backend";
-import { createMockHardware, type MockControl } from "./mock-hardware";
+import { createMockHardware, MOCK_EXAMPLE_SOURCES, type MockControl } from "./mock-hardware";
 import type { CreateProjectRequest, FileNode, ForgeConfig, ProjectInfo, RecentProject } from "./types";
 
 const ROOT = "/Users/demo/Documents/Forge";
@@ -216,6 +216,19 @@ export function createMockBackend(opts: { devicesAtStart?: boolean; speed?: numb
       recents = [{ path, name: p.name, kind: p.kind, openedAt: Math.floor(Date.now() / 1000) }, ...recents.filter((r) => r.path !== path)].slice(0, 12);
     },
     removeRecent: async (p) => void (recents = recents.filter((r) => r.path !== p)),
+
+    openExample: async (path) => {
+      const source = Object.entries(MOCK_EXAMPLE_SOURCES).find(([p]) => p.startsWith(`${path}/`));
+      if (!source) throw new Error("Das Beispiel gibt es nicht mehr. Aktualisiere die Liste.");
+      const base = path.split("/").pop()!;
+      let name = base;
+      for (let n = 2; dirs.has(`${ROOT}/Beispiele/${name}`); n++) name = `${base}_${n}`;
+      const dir = `${ROOT}/Beispiele/${name}`;
+      dirs.add(`${ROOT}/Beispiele`).add(dir);
+      files.set(`${dir}/${name}.ino`, source[1]);
+      projects.set(dir, { kind: "sketch", name, path: dir, mainFile: `${dir}/${name}.ino`, config: config(name) });
+      return open(dir);
+    },
   };
 }
 

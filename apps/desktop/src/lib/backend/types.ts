@@ -107,6 +107,8 @@ export interface ToolchainStatus {
   esp32Core: string | null;
   esptool: boolean;
   error: string | null;
+  /** Neueste Version des ESP32-Cores laut Paketliste. */
+  esp32CoreLatest?: string | null;
 }
 
 export interface ToolchainProgress {
@@ -138,7 +140,7 @@ export interface BoardArg {
 }
 
 /* ---------- Geräte ---------- */
-export type Bridge = "esp-native" | "cp210x" | "ch340" | "ch9102" | "ftdi" | "other";
+export type Bridge = "esp-native" | "cp210x" | "ch340" | "ch9102" | "ftdi" | "network" | "other";
 
 export interface DeviceInfo {
   id: string;
@@ -152,6 +154,13 @@ export interface DeviceInfo {
   label: string;
   likelyEsp: boolean;
   mac: string | null;
+  /** Fehlt bei älteren Mocks: dann USB. */
+  transport?: "usb" | "network";
+  /** Adresse und OTA-Port eines Boards im WLAN. */
+  host?: string | null;
+  otaPort?: number | null;
+  /** Das Board im WLAN verlangt ein OTA-Passwort. */
+  auth?: boolean;
 }
 
 export interface ChipProbe {
@@ -215,7 +224,11 @@ export interface FlashArgs {
   deviceId: string | null;
   eraseAll: boolean;
   force: boolean;
+  /** Ohne Angabe wird seriell über `port` geflasht. */
+  target?: FlashTarget;
 }
+
+export type FlashTarget = { kind: "serial"; port: string } | { kind: "network"; host: string; port: number };
 
 /* ---------- Monitor ---------- */
 export interface MonitorLine {
@@ -400,4 +413,36 @@ export interface SearchOptions {
   caseSensitive: boolean;
   wholeWord: boolean;
   regex: boolean;
+}
+
+/* ---------- Hardware und Build: Beispiele, Updates, Speicher ---------- */
+export interface ExampleInfo {
+  library: string;
+  name: string;
+  path: string;
+  /** `core` für Bibliotheken, die der Core mitbringt. */
+  source: "core" | "library";
+}
+
+export interface OutdatedItem {
+  name: string;
+  installed: string;
+  latest: string;
+}
+
+export interface MemoryGroup {
+  label: string;
+  size: number;
+  sections: Array<[string, number]>;
+}
+
+export interface SymbolSize {
+  name: string;
+  size: number;
+  kind: "code" | "data" | "bss" | "rodata";
+}
+
+export interface MemoryDetail {
+  groups: MemoryGroup[];
+  symbols: SymbolSize[];
 }

@@ -16,6 +16,8 @@ pub struct ToolchainStatus {
     pub esp32_core: Option<String>,
     pub esptool: bool,
     pub error: Option<String>,
+    /// Neueste Version des ESP32-Cores laut Paketliste.
+    pub esp32_core_latest: Option<String>,
 }
 
 #[tauri::command]
@@ -28,22 +30,25 @@ pub async fn toolchain_status(state: State<'_, AppState>) -> Result<ToolchainSta
                 esp32_core: None,
                 esptool: false,
                 error: Some(e),
+                esp32_core_latest: None,
             })
         }
     };
     let version = cli.version().await.ok();
-    let core = cli
+    let core_info = cli
         .cores()
         .await
         .ok()
-        .and_then(|c| c.into_iter().find(|c| c.id == ESP32_CORE))
-        .and_then(|c| c.installed);
+        .and_then(|c| c.into_iter().find(|c| c.id == ESP32_CORE));
+    let core_latest = core_info.as_ref().and_then(|c| c.latest.clone());
+    let core = core_info.and_then(|c| c.installed);
     let esptool = state.toolchain.esptool().await.is_ok();
     Ok(ToolchainStatus {
         arduino_cli: version,
         esp32_core: core,
         esptool,
         error: None,
+        esp32_core_latest: core_latest,
     })
 }
 
@@ -208,4 +213,52 @@ pub async fn fbuild_install(app: AppHandle, state: State<'_, AppState>) -> Resul
     forge_toolchain::fbuild::prefetch(&bin, &work, &board, &cancel, |l| say(&app, l))
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Aktualisiert den ESP32-Core auf die neueste Version. Fortschritt kommt über `toolchain:progress`.
+#[tauri::command]
+pub async fn core_upgrade(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let cli = state.toolchain.cli()?;
+    let pct = Regex::new(r"(\d+(?:\.\d+)?)\s*%").map_err(|e| e.to_string())?;
+    let cancel = CancellationToken::new();
+    let _ = app.emit(
+        "toolchain:progress",
+        Progress {
+            line: "Aktualisiere ESP32-Core".into(),
+            fraction: None,
+        },
+    );
+    cli.upgrade_core(ESP32_CORE, &cancel, |_, l| {
+        let fraction = pct
+            .captures(l)
+            .and_then(|c| c[1].parse::<f32>().ok())
+            .map(|p| p / 100.0);
+        let _ = app.emit(
+            "toolchain:progress",
+            Progress {
+                line: l.to_string(),
+                fraction,
+            },
+        );
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    state.toolchain.invalidate();
+    Ok(())
+}
+
+/// Lädt die Paketliste neu, wenn sie älter als 24 Stunden ist. Gibt `true` zurück, wenn aktualisiert wurde.
+#[tauri::command]
+pub async fn toolchain_refresh_index(state: State<'_, AppState>) -> Result<bool, String> {
+    let cli = state.toolchain.cli()?;
+    let data = state.toolchain.data_dir().await?;
+    let fresh = forge_toolchain::cli::index_age(&data)
+        .is_some_and(|a| a < std::time::Duration::from_secs(24 * 3600));
+    if fresh {
+        return Ok(false);
+    }
+    cli.update_index(&CancellationToken::new(), |_, _| {})
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(true)
 }

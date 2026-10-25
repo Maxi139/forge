@@ -5,6 +5,7 @@ import { backend, type FbuildStatus, type McpStatus } from "../lib/backend";
 import { useAi } from "../lib/ai";
 import { errorText, useStore } from "../lib/store";
 import { setThemePreference, useTheme, type ThemePreference } from "../lib/theme";
+import { ToolchainSection } from "./ToolchainSettings";
 
 function tokens(n: number): string {
   return n.toLocaleString("de-DE");
@@ -279,6 +280,7 @@ export function SettingsDialog() {
           />
         </div>
         <AiSection />
+        <ToolchainSection />
         <BuildSection />
         <ClaudeSection />
       </div>
