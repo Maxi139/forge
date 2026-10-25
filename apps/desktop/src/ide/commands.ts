@@ -3,6 +3,8 @@ import { t } from "../i18n/de";
 import { toggleTheme } from "../lib/theme";
 import { useHardware } from "../lib/hardware";
 import { useStore } from "../lib/store";
+import { findReferences, formatActive, renameSymbol } from "../editor/actions";
+import { useFormat } from "../editor/format";
 
 export interface RunnableCommand extends Command {
   run(): void;
@@ -51,6 +53,19 @@ export function buildCommands(): RunnableCommand[] {
     { id: "view.device", group: g.view, label: t.commands.toggleDevice, icon: "device", shortcut: ["⌥", "⌘", "D"], run: () => s.patchLayout({ deviceOpen: !s.layout.deviceOpen }) },
     { id: "view.problems", group: g.view, label: t.commands.openProblems, icon: "warning", run: () => s.setBottomTab("problems") },
     { id: "view.monitor", group: g.view, label: t.commands.openMonitor, icon: "serial", shortcut: ["⇧", "⌘", "M"], run: () => s.setBottomTab("monitor") },
+    hasProject && { id: "file.quickOpen", group: g.file, label: t.commands.quickOpen, icon: "search", shortcut: ["⌘", "P"], run: () => s.togglePalette(true, "files") },
+    hasProject && !!s.active && { id: "editor.symbols", group: g.file, label: t.commands.gotoSymbol, icon: "file-code", shortcut: ["⇧", "⌘", "O"], run: () => s.togglePalette(true, "symbols") },
+    hasProject && !!s.active && {
+      id: "editor.format",
+      group: g.file,
+      label: t.commands.formatDocument,
+      icon: "check",
+      shortcut: ["⇧", "⌥", "F"],
+      hint: useFormat.getState().available === false ? t.editorTools.formatMissing : undefined,
+      run: formatActive,
+    },
+    hasProject && !!s.active && { id: "editor.rename", group: g.file, label: t.commands.renameSymbol, icon: "file-code", shortcut: ["F2"], run: () => void renameSymbol() },
+    hasProject && !!s.active && { id: "editor.references", group: g.file, label: t.commands.findReferences, icon: "search", shortcut: ["⇧", "F12"], run: () => void findReferences() },
   ];
   return list.filter((c): c is RunnableCommand => c !== false);
 }

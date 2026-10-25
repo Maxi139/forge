@@ -17,6 +17,7 @@ export interface Buffer {
 }
 
 export type SidebarView = "files" | "search" | "library";
+export type PaletteMode = "commands" | "files" | "symbols";
 export type BottomTab = "monitor" | "plotter" | "problems" | "output";
 
 export interface ToastItem {
@@ -103,6 +104,12 @@ function forgetDocs(paths: string[]) {
   for (const key of paths) window.dispatchEvent(new CustomEvent("forge:forget-doc", { detail: { key } }));
 }
 
+let beforeSave: ((path: string) => Promise<void>) | null = null;
+/** Vor dem ausdrücklichen Speichern der aktiven Datei läuft dieser Hook (Formatieren beim Speichern). */
+export function setBeforeSave(fn: ((path: string) => Promise<void>) | null) {
+  beforeSave = fn;
+}
+
 export interface RecoverySnapshot {
   project: string;
   files: Record<string, string>;
@@ -157,6 +164,7 @@ interface Store {
   bottomTab: BottomTab;
   layout: LayoutState;
   paletteOpen: boolean;
+  paletteMode: PaletteMode;
   dialog: DialogState | null;
   toasts: ToastItem[];
 
@@ -213,7 +221,7 @@ interface Store {
   setSidebarViewOpen(v: SidebarView): void;
   setBottomTab(t: BottomTab): void;
   patchLayout(p: Partial<LayoutState>): void;
-  togglePalette(open?: boolean): void;
+  togglePalette(open?: boolean, mode?: PaletteMode): void;
   setDialog(d: DialogState | null): void;
   /** Wendet Textänderungen auf eine Datei an, auch wenn sie nicht offen ist. */
   applyEdits(file: string, edits: TextEdit[]): Promise<void>;
@@ -245,6 +253,7 @@ export const useStore = create<Store>((set, get) => ({
   bottomTab: "problems",
   layout: readLayout(),
   paletteOpen: false,
+  paletteMode: "commands",
   dialog: null,
   toasts: [],
 
@@ -569,6 +578,8 @@ export const useStore = create<Store>((set, get) => ({
   async save(path) {
     const p = path ?? get().active;
     if (!p) return true;
+    // Ohne Pfad speichert der Nutzer die aktive Datei selbst. Nur dann formatiert der Hook.
+    if (path === undefined && beforeSave && get().buffers[p]) await beforeSave(p).catch(() => undefined);
     const b = get().buffers[p];
     if (!b || b.text === b.saved) return true;
     try {
@@ -701,7 +712,11 @@ export const useStore = create<Store>((set, get) => ({
     writeLayout(layout);
     set({ layout });
   },
-  togglePalette: (open) => set((s) => ({ paletteOpen: open ?? !s.paletteOpen })),
+  togglePalette: (open, mode) =>
+    set((s) => {
+      const paletteOpen = open ?? !s.paletteOpen;
+      return { paletteOpen, paletteMode: paletteOpen ? (mode ?? "commands") : s.paletteMode };
+    }),
   setDialog: (dialog) => set({ dialog }),
   async applyEdits(file, edits) {
     await get().openFile(file);

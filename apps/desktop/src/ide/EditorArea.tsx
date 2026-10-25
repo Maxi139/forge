@@ -1,6 +1,7 @@
 import { Badge, Button, EmptyState, Icon, Tabs, type TabItem } from "@forge/ui";
 import { useEffect, useMemo, useRef } from "react";
 import { applyEdits } from "../editor/diagnostics";
+import { currentSymbol, useSymbols } from "../editor/symbols";
 import { ForgeEditor, type CursorInfo, type ForgeEditorHandle, type Reveal } from "../editor/ForgeEditor";
 import { t } from "../i18n/de";
 import { useAi } from "../lib/ai";
@@ -44,6 +45,10 @@ export function EditorArea({ reveal }: { reveal: Reveal | null }) {
     [tabs, buffers, diagnostics, project],
   );
 
+  const symbols = useSymbols(active);
+  const cursorLine = useStore((s) => s.cursor.line);
+  const here = useMemo(() => currentSymbol(symbols, cursorLine), [symbols, cursorLine]);
+
   const aiBlocks = useAi((s) => (active ? s.blocks[active] : undefined));
   const fileDiagnostics = useMemo(() => (active ? diagnosticsForFile({ diagnostics }, active) : []), [diagnostics, active]);
   // Ein Haken sagt „kein Logikfehler“. Liegt in der Funktion ein Fehler des Compilers, wäre er irreführend.
@@ -83,6 +88,14 @@ export function EditorArea({ reveal }: { reveal: Reveal | null }) {
               <span>{c}</span>
             </span>
           ))}
+          {here ? (
+            <>
+              <Icon name="chevron-right" size={12} />
+              <button type="button" className="fg-crumb-symbol" title={t.commands.gotoSymbol} onClick={() => useStore.getState().togglePalette(true, "symbols")}>
+                {here.name}
+              </button>
+            </>
+          ) : null}
           <span style={{ flex: 1 }} />
           {!buffer.readOnly ? (
             <Button variant="ghost" size="sm" icon="spark" onClick={() => setDialog({ kind: "aiTask" })} title={t.ai.taskTitle}>
@@ -92,7 +105,7 @@ export function EditorArea({ reveal }: { reveal: Reveal | null }) {
           {buffer.readOnly ? (
             <Badge icon="info">{t.editor.readOnly}</Badge>
           ) : (
-            <Button variant="ghost" size="sm" icon="check" disabled={buffer.text === buffer.saved} onClick={() => void save(active)} title="Speichern  ⌘S">
+            <Button variant="ghost" size="sm" icon="check" disabled={buffer.text === buffer.saved} onClick={() => void save()} title="Speichern  ⌘S">
               {t.dialogs.save}
             </Button>
           )}
@@ -109,7 +122,7 @@ export function EditorArea({ reveal }: { reveal: Reveal | null }) {
           reveal={reveal}
           autoFocus
           onChange={(text) => updateBuffer(active, text)}
-          onSave={() => void save(active)}
+          onSave={() => void save()}
           onCursor={(c: CursorInfo) => setCursor(c)}
         />
       </div>

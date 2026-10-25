@@ -1,7 +1,9 @@
 import { ErrorBoundary } from "./ErrorBoundary";
 import { ActivityBar, CommandPalette, ContextMenu, Panel, Splitter, TitleBar, Toast, ToastStack, type ActivityItem, type MenuItem } from "@forge/ui";
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEditorHooks } from "../editor/autosave";
 import type { Reveal } from "../editor/ForgeEditor";
+import { loadSymbols } from "../editor/symbols";
 import { t } from "../i18n/de";
 import { backend } from "../lib/backend";
 import { boardName } from "../lib/boards";
@@ -9,6 +11,9 @@ import type { Diagnostic } from "../lib/diagnostics";
 import { useAi } from "../lib/ai";
 import { useHardware } from "../lib/hardware";
 import { baseName, useStore } from "../lib/store";
+import { fileCommands, useRecentFiles } from "../lib/quickOpen";
+import type { LspSymbol } from "../lib/backend";
+import type { Command } from "@forge/ui";
 import { BottomPanel } from "./BottomPanel";
 import { buildCommands } from "./commands";
 import { DevicePanel } from "./DevicePanel";
@@ -42,6 +47,7 @@ export function Shell() {
   useLiveAnalysis();
   useLiveAi();
   useLiveLsp();
+  useEditorHooks();
 
   const project = useStore((s) => s.project);
   const layout = useStore((s) => s.layout);
@@ -119,6 +125,38 @@ export function Shell() {
   }, [setDialog]);
 
   const commands = useMemo(() => (paletteOpen ? buildCommands() : []), [paletteOpen]);
+  const paletteMode = useStore((s) => s.paletteMode);
+  const tree = useStore((s) => s.tree);
+  const activeFile = useStore((s) => s.active);
+  const recentFiles = useRecentFiles((s) => s.files);
+  const [symbols, setSymbols] = useState<LspSymbol[]>([]);
+  useEffect(() => {
+    if (!paletteOpen || paletteMode !== "symbols" || !activeFile) return;
+    let alive = true;
+    void loadSymbols(activeFile).then((list) => alive && setSymbols(list));
+    return () => {
+      alive = false;
+    };
+  }, [paletteOpen, paletteMode, activeFile]);
+  // Je nach Modus sucht die Palette Befehle, Dateien oder Symbole der aktiven Datei.
+  const paletteItems = useMemo<Command[]>(() => {
+    if (!paletteOpen) return [];
+    const labels = { recent: t.editorTools.recent, files: t.editorTools.files };
+    const files = project ? fileCommands(tree, project.path, recentFiles, labels, activeFile) : [];
+    if (paletteMode === "files") return files;
+    if (paletteMode === "symbols") {
+      return symbols.map((s, i) => ({
+        id: `sym:${i}`,
+        label: s.name,
+        icon: "file-code" as const,
+        hint: [s.container, t.editorTools.symbolLine(s.line)].filter(Boolean).join(" · "),
+        group: t.editorTools.symbolKinds[s.kind] ?? t.editorTools.files,
+        search: s.detail ?? undefined,
+      }));
+    }
+    // Im Befehlsmodus tauchen Dateien erst auf, wenn man tippt.
+    return [...commands, ...files.filter((f) => !f.emptyOnly).map((f) => ({ ...f, searchOnly: true }))];
+  }, [paletteOpen, paletteMode, commands, tree, project, recentFiles, activeFile, symbols]);
 
   const style = {
     "--sidebar-w": `${live.sidebarWidth ?? layout.sidebarWidth}px`,
@@ -260,12 +298,21 @@ export function Shell() {
           }}
         >
           <CommandPalette
+            key={paletteMode}
             autoFocus
-            items={commands}
+            items={paletteItems}
+            placeholder={paletteMode === "files" ? t.editorTools.quickPlaceholder : paletteMode === "symbols" ? t.editorTools.symbolPlaceholder : undefined}
             onClose={() => togglePalette(false)}
             onRun={(item) => {
               togglePalette(false);
-              commands.find((c) => c.id === item.id)?.run();
+              const sep = item.id.indexOf(":");
+              const kind = sep > 0 ? item.id.slice(0, sep) : "";
+              const rest = item.id.slice(sep + 1);
+              if (kind === "file" || kind === "recent") void openFile(rest);
+              else if (kind === "sym") {
+                const sym = symbols[Number(rest)];
+                if (sym && activeFile) void useStore.getState().gotoLocation({ file: activeFile, line: sym.line, col: sym.col });
+              } else commands.find((c) => c.id === item.id)?.run();
             }}
           />
         </div>

@@ -2,7 +2,7 @@ import type { Backend } from "./backend";
 import type { LspFileEdits, LspLocation, LspSymbol } from "./types";
 import type { TextEdit } from "../diagnostics";
 
-type EditorApi = Pick<Backend, "formatAvailable" | "formatDocument" | "lspSymbols" | "lspReferences" | "lspPrepareRename" | "lspRename">;
+type EditorApi = Pick<Backend, "lspSync" | "formatAvailable" | "formatDocument" | "lspSymbols" | "lspReferences" | "lspPrepareRename" | "lspRename">;
 
 const WORD = /[A-Za-z_]\w*/g;
 const CODE = /\.(ino|cpp|cc|c|h|hpp)$/i;
@@ -43,6 +43,8 @@ export function mockFormat(text: string): string {
 export function createMockEditor(projectFiles: () => Record<string, string>): EditorApi {
   const codeFiles = () => Object.entries(projectFiles()).filter(([p]) => CODE.test(p));
   return {
+    // Im Browser gibt es keinen clangd. „Bereit“ genügt, damit Umbenennen und Referenzen mit den Beispieldaten laufen.
+    lspSync: async () => true,
     formatAvailable: async () => true,
     formatDocument: async (_path, text) => mockFormat(text),
 

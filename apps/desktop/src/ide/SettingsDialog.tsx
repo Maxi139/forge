@@ -1,5 +1,7 @@
 import { Badge, Button, Checkbox, Dialog, Input, Select } from "@forge/ui";
 import { useEffect, useState } from "react";
+import { EDITOR_FONT_SIZES, TAB_WIDTHS, useEditorSettings, type Autosave } from "../editor/settings";
+import { useFormat } from "../editor/format";
 import { t } from "../i18n/de";
 import { backend, type FbuildStatus, type McpStatus } from "../lib/backend";
 import { useAi } from "../lib/ai";
@@ -250,6 +252,48 @@ function ClaudeSection() {
   );
 }
 
+function EditorSection() {
+  const settings = useEditorSettings((st) => st.settings);
+  const patch = useEditorSettings((st) => st.patch);
+  const formatReady = useFormat((st) => st.available);
+  const et = t.editorTools;
+  useEffect(() => {
+    void useFormat.getState().check();
+  }, []);
+  return (
+    <section className="settings-group" aria-label={et.section}>
+      <h3 className="settings-heading">{et.section}</h3>
+      <div className="form">
+        <Select
+          label={et.fontSize}
+          value={String(settings.fontSize)}
+          onChange={(e) => patch({ fontSize: Number(e.target.value) })}
+          options={[...new Set([...EDITOR_FONT_SIZES, settings.fontSize])].sort((a, b) => a - b).map((n) => ({ value: String(n), label: et.pt(n) }))}
+        />
+        <Select
+          label={et.tabWidth}
+          value={String(settings.tabWidth)}
+          onChange={(e) => patch({ tabWidth: Number(e.target.value) })}
+          options={[...new Set([...TAB_WIDTHS, settings.tabWidth])].sort((a, b) => a - b).map((n) => ({ value: String(n), label: et.spaces(n) }))}
+        />
+        <Checkbox label={et.wrap} checked={settings.wrap} onChange={(e) => patch({ wrap: e.target.checked })} />
+        <Select
+          label={et.autosave}
+          value={settings.autosave}
+          onChange={(e) => patch({ autosave: e.target.value as Autosave })}
+          options={[
+            { value: "off", label: et.autosaveOff },
+            { value: "delay", label: et.autosaveDelay },
+            { value: "blur", label: et.autosaveBlur },
+          ]}
+        />
+        <Checkbox label={et.formatOnSave} checked={settings.formatOnSave} disabled={formatReady === false} onChange={(e) => patch({ formatOnSave: e.target.checked })} />
+        {formatReady === false ? <div className="settings-note">{`${et.formatMissing}. ${et.formatMissingText}`}</div> : null}
+      </div>
+    </section>
+  );
+}
+
 export function SettingsDialog() {
   const setDialog = useStore((s) => s.setDialog);
   const { preference } = useTheme();
@@ -278,6 +322,7 @@ export function SettingsDialog() {
             ]}
           />
         </div>
+        <EditorSection />
         <AiSection />
         <BuildSection />
         <ClaudeSection />

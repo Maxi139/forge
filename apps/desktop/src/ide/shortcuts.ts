@@ -8,6 +8,16 @@ import { buildCommands } from "./commands";
  * (siehe `menu.rs`), dort würden sie doppelt auslösen.
  */
 export function useShortcuts() {
+  // Tasten, die der Editor selbst abfängt (F2, ⇧F12, ⇧⌥F). Sie gelten in der App wie im Browser.
+  useEffect(() => {
+    const on = (e: Event) => {
+      const id = (e as CustomEvent<string>).detail;
+      buildCommands().find((c) => c.id === id)?.run();
+    };
+    window.addEventListener("forge:run-command", on);
+    return () => window.removeEventListener("forge:run-command", on);
+  }, []);
+
   useEffect(() => {
     if (backend().native) return;
     const onKey = (e: KeyboardEvent) => {
@@ -31,10 +41,10 @@ export function useShortcuts() {
         run("view.sidebar");
       } else {
         const map: Record<string, string> = e.shiftKey
-          ? { n: "file.newProject", m: "view.monitor", f: "view.search", i: "ai.task", s: "file.saveAs" }
+          ? { n: "file.newProject", m: "view.monitor", f: "view.search", i: "ai.task", s: "file.saveAs", o: "editor.symbols" }
           : e.altKey
             ? { s: "file.saveAll", d: "view.device" }
-            : { n: "file.newSketch", o: "file.open", s: "file.save", w: "file.close", u: "build.flash", b: "build.compile" };
+            : { n: "file.newSketch", o: "file.open", s: "file.save", w: "file.close", u: "build.flash", b: "build.compile", p: "file.quickOpen" };
         const id = map[key];
         if (id) {
           e.preventDefault();

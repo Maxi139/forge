@@ -12,6 +12,12 @@ export interface Command {
   icon?: IconName;
   hint?: string;
   shortcut?: string[];
+  /** Nur sichtbar, solange nichts eingegeben ist (z. B. die Gruppe „Zuletzt“). */
+  emptyOnly?: boolean;
+  /** Nur sichtbar, sobald etwas eingegeben ist (z. B. Dateien in der Befehlspalette). */
+  searchOnly?: boolean;
+  /** Zusätzlicher Suchtext neben dem Namen, etwa der Ordner einer Datei. */
+  search?: string;
 }
 
 export interface CommandPaletteProps {
@@ -38,9 +44,13 @@ export function CommandPalette({ items, onRun, onClose, placeholder, defaultQuer
 
   const list = useMemo<Ranked[]>(() => {
     const ranked = items
+      .filter((it) => (q ? !it.emptyOnly : !it.searchOnly))
       .map((it) => {
         const m = fuzzy(q, it.label);
-        return m ? { it, idx: m.idx, score: m.score, i: 0 } : null;
+        if (m) return { it, idx: m.idx, score: m.score, i: 0 };
+        // Trifft nur der Zusatztext, zählt der Treffer weniger und es gibt nichts zu markieren.
+        const alt = it.search ? fuzzy(q, it.search) : null;
+        return alt ? { it, idx: [], score: alt.score - 10, i: 0 } : null;
       })
       .filter((x): x is Ranked => x !== null);
     if (q) ranked.sort((a, b) => b.score - a.score);

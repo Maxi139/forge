@@ -1,18 +1,22 @@
 import { acceptCompletion, autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from "@codemirror/autocomplete";
-import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+import { addCursorAbove, addCursorBelow, defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { cpp } from "@codemirror/lang-cpp";
-import { bracketMatching, foldGutter, foldKeymap, indentOnInput, indentUnit } from "@codemirror/language";
+import { bracketMatching, foldGutter, foldKeymap, indentOnInput } from "@codemirror/language";
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
 import { Compartment, type Extension, EditorState } from "@codemirror/state";
 import {
+  crosshairCursor,
   drawSelection,
   EditorView,
   highlightActiveLine,
   highlightActiveLineGutter,
   keymap,
   lineNumbers,
+  rectangularSelection,
 } from "@codemirror/view";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import { germanPhrases } from "./phrases";
+import { editorSettingsExtension, useEditorSettings } from "./settings";
 import type { LspLocation } from "../lib/backend";
 import type { Diagnostic } from "../lib/diagnostics";
 import { forgeLsp, lspCompletions } from "./lsp";
@@ -81,6 +85,8 @@ export const ForgeEditor = forwardRef<ForgeEditorHandle, ForgeEditorProps>(funct
   const cache = useRef(new Map<string, Cached>());
   const current = useRef<string | null>(null);
   const extras = useRef(new Compartment());
+  const prefs = useRef(new Compartment());
+  const settings = useEditorSettings((st) => st.settings);
   const cb = useRef(props);
   cb.current = props;
 
@@ -105,6 +111,10 @@ export const ForgeEditor = forwardRef<ForgeEditorHandle, ForgeEditorProps>(funct
         }),
         history(),
         drawSelection(),
+        EditorState.allowMultipleSelections.of(true),
+        rectangularSelection(),
+        crosshairCursor(),
+        germanPhrases,
         // Text zu ziehen braucht hier niemand. Ein Klick in eine Markierung startet sonst einen Ziehvorgang,
         // den macOS nicht sauber beendet: Die Maus gilt als gedrückt und die Ansicht scrollt von selbst.
         EditorView.domEventHandlers({
@@ -129,8 +139,7 @@ export const ForgeEditor = forwardRef<ForgeEditorHandle, ForgeEditorProps>(funct
         autocompletion({ override: [lspCompletions(() => cb.current.docKey)], icons: true, maxRenderedOptions: 60 }),
         forgeLsp({ file: () => cb.current.docKey, goto: (l) => cb.current.onGoto?.(l) }),
         ...(cb.current.readOnly ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []),
-        EditorState.tabSize.of(2),
-        indentUnit.of("  "),
+        prefs.current.of(editorSettingsExtension(useEditorSettings.getState().settings)),
         cpp(),
         forgeTheme,
         forgeHighlighting,
@@ -141,6 +150,13 @@ export const ForgeEditor = forwardRef<ForgeEditorHandle, ForgeEditorProps>(funct
           { key: "Mod-s", preventDefault: true, run: () => (cb.current.onSave?.(), true) },
           // ⌘U flasht (Menü). Ohne diese Zeile macht CodeMirror daraus zusätzlich „Auswahl rückgängig“.
           { key: "Mod-u", run: () => true, preventDefault: true },
+          { key: "Mod-Alt-ArrowUp", run: addCursorAbove, preventDefault: true },
+          { key: "Mod-Alt-ArrowDown", run: addCursorBelow, preventDefault: true },
+          // Diese Befehle gehören der Oberfläche (Palette, Sprachserver), der Editor reicht sie nur weiter.
+          ...(["F2:editor.rename", "Shift-F12:editor.references", "Shift-Alt-f:editor.format"] as const).map((entry) => {
+            const [key, id] = entry.split(":");
+            return { key, preventDefault: true, run: () => (window.dispatchEvent(new CustomEvent("forge:run-command", { detail: id })), true) };
+          }),
           { key: "Tab", run: acceptCompletion },
           ...closeBracketsKeymap,
           ...completionKeymap,
@@ -192,7 +208,14 @@ export const ForgeEditor = forwardRef<ForgeEditorHandle, ForgeEditorProps>(funct
     requestAnimationFrame(() => {
       view.scrollDOM.scrollTop = cache.current.get(props.docKey)?.scrollTop ?? 0;
     });
-    view.dispatch({ effects: [setDiagnostics.of(props.diagnostics ?? []), setAiOk.of(props.aiOk ?? [])] });
+    view.dispatch({
+      effects: [
+        setDiagnostics.of(props.diagnostics ?? []),
+        setAiOk.of(props.aiOk ?? []),
+        // Ein zwischengespeicherter Zustand kennt die Einstellungen von damals.
+        prefs.current.reconfigure(editorSettingsExtension(useEditorSettings.getState().settings)),
+      ],
+    });
     const sel = view.state.selection.main;
     const line = view.state.doc.lineAt(sel.head);
     cb.current.onCursor?.({ line: line.number, col: sel.head - line.from + 1, selected: Math.abs(sel.to - sel.from) });
@@ -227,6 +250,11 @@ export const ForgeEditor = forwardRef<ForgeEditorHandle, ForgeEditorProps>(funct
   useEffect(() => {
     viewRef.current?.dispatch({ effects: extras.current.reconfigure(props.extensions ?? []) });
   }, [props.extensions]);
+
+  // Einstellungen (Schrift, Tabbreite, Umbruch).
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: prefs.current.reconfigure(editorSettingsExtension(settings)) });
+  }, [settings]);
 
   // Sprung zu einer Zeile.
   useEffect(() => {
