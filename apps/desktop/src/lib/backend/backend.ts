@@ -220,4 +220,7 @@ export interface Backend {
   memoryDetail(): Promise<MemoryDetail>;
   otaPasswordSet(deviceId: string): Promise<boolean>;
   setOtaPassword(deviceId: string, password: string | null): Promise<void>;
+  /** Fragt nach einem Ort und schreibt den Text dorthin. Liefert den Pfad, oder null bei Abbruch. */
+  saveTextAs(defaultName: string, text: string): Promise<string | null>;
 }
+

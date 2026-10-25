@@ -59,3 +59,15 @@ export function filterLines<T extends { text: string; kind?: string }>(lines: T[
     return (f.matchCase ? l.text : l.text.toLowerCase()).includes(q);
   });
 }
+
+function stamp(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}.${String(ms % 1000).padStart(3, "0")}`;
+}
+
+/** Zeilen als Text für Zwischenablage und Datei. Gesendetes ist mit `→` markiert. */
+export function formatLog(lines: Array<{ t?: number; kind?: string; text: string }>, timestamps: boolean): string {
+  return lines
+    .map((l) => `${timestamps && l.t != null ? `${stamp(l.t)} ` : ""}${l.kind === "tx" ? "→ " : ""}${l.text}`)
+    .join("\n");
+}

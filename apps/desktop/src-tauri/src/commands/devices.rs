@@ -161,3 +161,9 @@ pub(crate) fn ota_password(device_id: &str) -> Option<String> {
         .ok()
         .flatten()
 }
+
+/// Schreibt einen Text an einen Ort, den der Nutzer im Speichern-Dialog gewählt hat (Monitor-Log, Plotter-CSV).
+#[tauri::command]
+pub fn export_write(path: std::path::PathBuf, text: String) -> Result<(), String> {
+    std::fs::write(&path, text).map_err(|e| format!("Speichern fehlgeschlagen: {e}"))
+}

@@ -1,6 +1,8 @@
 import { Button, EmptyState, Plotter, SerialMonitor, type ConnectionState } from "@forge/ui";
 import { t } from "../i18n/de";
+import { backend } from "../lib/backend";
 import { useHardware } from "../lib/hardware";
+import { useStore } from "../lib/store";
 
 function connection(state: ReturnType<typeof useHardware.getState>["monitor"]["state"]): ConnectionState {
   switch (state.state) {
@@ -12,6 +14,15 @@ function connection(state: ReturnType<typeof useHardware.getState>["monitor"]["s
       return "error";
     default:
       return "idle";
+  }
+}
+
+async function exportLog(text: string) {
+  try {
+    const path = await backend().saveTextAs(t.monitor.exportName, text);
+    if (path) useStore.getState().toast({ kind: "success", title: t.monitor.exported(path) });
+  } catch (e) {
+    useStore.getState().toast({ kind: "error", title: t.errors.generic, message: e instanceof Error ? e.message : String(e) });
   }
 }
 
@@ -33,6 +44,7 @@ export function MonitorView() {
       onSend={(text, ending) => void sendToMonitor(text, ending)}
       onClear={clearMonitor}
       onBaud={(b) => void setBaud(b)}
+      onExport={(text) => void exportLog(text)}
       actions={
         monitor.open ? (
           <Button variant="ghost" size="sm" icon="pause" aria-label="Monitor trennen" title="Monitor trennen" onClick={() => void stopMonitor()} />

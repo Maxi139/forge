@@ -190,6 +190,8 @@ export interface MockControl {
   /** Bis zum Aufruf liegt kein Board am USB. */
   plug(): void;
   unplug(): void;
+  /** Was per „Speichern unter“ geschrieben wurde, nach Dateiname. */
+  exported: Map<string, string>;
 }
 
 type HardwareApi = Pick<
@@ -259,6 +261,7 @@ type HardwareApi = Pick<
   | "memoryDetail"
   | "otaPasswordSet"
   | "setOtaPassword"
+  | "saveTextAs"
 >;
 
 export function createMockHardware(readProject: () => Record<string, string>, opts: { devicesAtStart?: boolean; speed?: number; secretNames?: string[] } = {}): { api: HardwareApi; control: MockControl } {
@@ -284,6 +287,7 @@ export function createMockHardware(readProject: () => Record<string, string>, op
   const secretStore = new Map<string, { value: string; global: boolean }>();
   const declared = new Set<string>(opts.secretNames ?? []);
   let cancelled = false;
+  const exported = new Map<string, string>();
   let monitorTimer: ReturnType<typeof setInterval> | null = null;
   let lineId = 0;
   let started = 0;
@@ -467,6 +471,10 @@ export function createMockHardware(readProject: () => Record<string, string>, op
     },
     otaPasswordSet: async (id) => otaPasswords.has(id),
     setOtaPassword: async (id, password) => void (password ? otaPasswords.add(id) : otaPasswords.delete(id)),
+    saveTextAs: async (name, text) => {
+      exported.set(name, text);
+      return `/Users/mock/Downloads/${name}`;
+    },
 
     search: async (query: string, o: SearchOptions, overrides: Record<string, string>): Promise<SearchResult> => {
       if (!query) return { hits: [], truncated: false };
@@ -633,5 +641,5 @@ export function createMockHardware(readProject: () => Record<string, string>, op
     },
   };
 
-  return { api, control: { setDevices, plug: () => setDevices([MOCK_DEVICE]), unplug: () => setDevices([]) } };
+  return { api, control: { setDevices, plug: () => setDevices([MOCK_DEVICE]), unplug: () => setDevices([]), exported } };
 }

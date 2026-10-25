@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterLines } from "./util";
+import { filterLines, formatLog } from "./util";
 
 const lines = [
   { text: "I (12) wifi: Verbunden", kind: "rx" },
@@ -20,5 +20,15 @@ describe("filterLines", () => {
   });
   it("kombiniert Text und Fehler", () => {
     expect(filterLines(lines, { query: "wifi", matchCase: false, errorsOnly: true })).toHaveLength(0);
+  });
+});
+
+describe("formatLog", () => {
+  it("setzt Zeitstempel und Sendemarke", () => {
+    const text = formatLog([{ t: 61_005, kind: "tx", text: "hi" }, { t: 62_000, kind: "rx", text: "ok" }], true);
+    expect(text).toBe("01:01.005 → hi\n01:02.000 ok");
+  });
+  it("lässt Zeitstempel weg", () => {
+    expect(formatLog([{ t: 5, text: "a" }, { text: "b" }], false)).toBe("a\nb");
   });
 });

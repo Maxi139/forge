@@ -278,6 +278,8 @@ export const de = {
     plotterEmpty: "Noch keine Werte",
     plotterEmptyText: "Der Plotter zeichnet Werte im Format name:wert aus dem Monitor.",
     reconnecting: (reason: string) => `Verbinde neu: ${reason}`,
+    exportName: "monitor-log.txt",
+    exported: (path: string) => `Log gespeichert: ${path}`,
   },
 
   libraries: {

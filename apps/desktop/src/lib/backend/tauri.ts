@@ -222,5 +222,11 @@ export function createTauriBackend(): Backend {
     memoryDetail: () => call<MemoryDetail>("build_memory_detail"),
     otaPasswordSet: (deviceId) => call<boolean>("ota_password_status", { deviceId }),
     setOtaPassword: (deviceId, password) => call<void>("ota_password_set", { deviceId, password }),
+    async saveTextAs(defaultName, text) {
+      const path = await saveDialog({ title: "Speichern unter", defaultPath: defaultName });
+      if (!path) return null;
+      await call<void>("export_write", { path, text });
+      return path;
+    },
   };
 }

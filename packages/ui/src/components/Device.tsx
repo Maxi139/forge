@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
-import { cx, filterLines, formatBytes } from "../util";
+import { cx, filterLines, formatBytes, formatLog } from "../util";
 import { Badge, Button, Input, Kbd, Select, StatusDot, Toggle, type ConnectionState } from "./Controls";
 import { Icon } from "./Icon";
 
@@ -23,6 +23,8 @@ export interface SerialMonitorProps {
   onSend?(text: string, ending: LineEnding): void;
   onClear?(): void;
   onBaud?(baud: number): void;
+  /** Gibt die gezeigten Zeilen als Text zum Speichern heraus. */
+  onExport?(text: string): void;
   height?: number;
   className?: string;
   /** Zusätzliche Schaltflächen am Ende der Leiste. */
@@ -69,6 +71,7 @@ export function SerialMonitor({
   onSend,
   onClear,
   onBaud,
+  onExport,
   height,
   className,
   actions,
@@ -85,6 +88,13 @@ export function SerialMonitor({
 
   const filtering = filterOpen && (query !== "" || errorsOnly);
   const shown = filtering ? filterLines(lines, { query, matchCase, errorsOnly }) : lines;
+
+  const copy = () => {
+    const sel = window.getSelection();
+    const inside = sel && !sel.isCollapsed && out.current?.contains(sel.anchorNode);
+    const text = inside ? sel.toString() : formatLog(shown, ts);
+    void navigator.clipboard?.writeText(text).catch(() => undefined);
+  };
 
   useEffect(() => {
     if (auto && out.current) out.current.scrollTop = out.current.scrollHeight;
@@ -107,6 +117,10 @@ export function SerialMonitor({
           onChange={(e) => onBaud?.(Number(e.target.value))}
           options={BAUDS}
         />
+        <Button variant="ghost" size="sm" icon="file" aria-label="Auswahl kopieren" title="Auswahl kopieren (ohne Auswahl: alles Gezeigte)" onClick={copy} />
+        {onExport ? (
+          <Button variant="ghost" size="sm" icon="arrow-down" aria-label="Log exportieren" title="Log als Datei speichern" disabled={shown.length === 0} onClick={() => onExport(formatLog(shown, ts))} />
+        ) : null}
         <Button variant="ghost" size="sm" icon="trash" aria-label="Ausgabe leeren" title="Ausgabe leeren" onClick={onClear} />
         {actions}
       </div>
