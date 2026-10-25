@@ -280,6 +280,15 @@ button.fg-status-item:hover { background: var(--surface-hover); color: var(--ink
 .fg-mon-line--sys .fg-mon-text { color: var(--ink-muted); font-style: italic; }
 .fg-mon-line--err .fg-mon-text { color: var(--error); }
 .fg-mon-dir { color: var(--info); flex: none; margin-right: -6px; }
+.fg-mon-decode { flex: none; margin-left: auto; align-self: flex-start; height: 18px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--radius-pill); background: transparent; color: var(--ink-muted); font: inherit; font-family: var(--font-sans); font-size: 11px; cursor: pointer; }
+.fg-mon-decode:hover:not(:disabled) { color: var(--ink); border-color: var(--ink-muted); }
+.fg-mon-frames { margin: 2px 0 4px 24px; padding-left: 10px; border-left: 2px solid var(--glut); }
+.fg-mon-frames.is-error { color: var(--warning); border-left-color: var(--warning); font-family: var(--font-sans); font-size: 12px; }
+.fg-mon-frame { display: flex; gap: 12px; white-space: pre-wrap; }
+.fg-mon-addr { color: var(--ink-faint); flex: none; }
+.fg-mon-fn { color: var(--ink); }
+.fg-mon-loc { margin-left: auto; flex: none; padding: 0; border: 0; background: none; font: inherit; color: var(--info); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.fg-mon-loc.is-plain { color: var(--ink-muted); text-decoration: none; cursor: default; }
 .fg-mon-in { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 8px 0 12px; border-top: 1px solid var(--line); flex: none; }
 .fg-mon-in .fg-mon-prompt { color: var(--glut); font-family: var(--font-mono); font-weight: 600; }
 .fg-mon-in input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-family: var(--font-mono); font-size: 12.5px; caret-color: var(--cursor); }

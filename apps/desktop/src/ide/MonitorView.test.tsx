@@ -1,5 +1,5 @@
 import { SerialMonitor } from "@forge/ui";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 describe("SerialMonitor", () => {
@@ -53,5 +53,26 @@ describe("SerialMonitor", () => {
     expect((baud as HTMLInputElement).value).toBe("115200");
     fireEvent.click(screen.getByLabelText("Board neu starten"));
     expect(onReset).toHaveBeenCalled();
+  });
+
+  it("löst einen Backtrace auf und springt zur Stelle", async () => {
+    const frame = { addr: "0x400d1234", function: "loop()", file: "/p/a.ino", line: 12, openable: true };
+    const onDecode = vi.fn().mockResolvedValue([frame]);
+    const onOpenFrame = vi.fn();
+    const lines = [{ id: 1, kind: "rx" as const, text: "Backtrace: 0x400d1234:0x3ffb1f50" }, { id: 2, kind: "rx" as const, text: "normal" }];
+    render(<SerialMonitor lines={lines} canDecode={(l) => l.text.startsWith("Backtrace")} onDecode={onDecode} onOpenFrame={onOpenFrame} />);
+    expect(screen.getAllByText("Auflösen")).toHaveLength(1);
+    fireEvent.click(screen.getByText("Auflösen"));
+    const loc = await screen.findByText("a.ino:12");
+    fireEvent.click(loc);
+    expect(onOpenFrame).toHaveBeenCalledWith(frame);
+    expect(screen.getByText("loop()")).toBeInTheDocument();
+  });
+
+  it("zeigt Fehler beim Auflösen", async () => {
+    const onDecode = vi.fn().mockRejectedValue(new Error("Es gibt noch keinen Build."));
+    render(<SerialMonitor lines={[{ id: 1, text: "Backtrace: 0x1" }]} canDecode={() => true} onDecode={onDecode} />);
+    fireEvent.click(screen.getByText("Auflösen"));
+    await waitFor(() => expect(screen.getByText("Es gibt noch keinen Build.")).toBeInTheDocument());
   });
 });

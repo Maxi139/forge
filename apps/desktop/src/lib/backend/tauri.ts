@@ -43,6 +43,7 @@ import type {
   McpStatus,
   SearchResult,
   ModelList,
+  BacktraceFrame,
   MonitorLine,
   MonitorState,
   ProjectInfo,
@@ -224,6 +225,7 @@ export function createTauriBackend(): Backend {
     setOtaPassword: (deviceId, password) => call<void>("ota_password_set", { deviceId, password }),
     monitorReset: () => call<void>("monitor_reset"),
     monitorSetBaud: (baud) => call<void>("monitor_set_baud", { baud }),
+    decodeBacktrace: (text) => call<BacktraceFrame[]>("backtrace_decode", { text }),
     async saveTextAs(defaultName, text) {
       const path = await saveDialog({ title: "Speichern unter", defaultPath: defaultName });
       if (!path) return null;

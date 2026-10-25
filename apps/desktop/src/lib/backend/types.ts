@@ -477,3 +477,11 @@ export interface MemoryDetail {
   groups: MemoryGroup[];
   symbols: SymbolSize[];
 }
+
+/** Eine aufgelöste Adresse aus einem Backtrace. */
+export interface BacktraceFrame {
+  addr: string;
+  function: string;
+  file: string;
+  line: number;
+}

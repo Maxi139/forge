@@ -160,6 +160,30 @@ pub fn monitor_set_baud(state: State<AppState>, baud: u32) -> Result<(), String>
     Ok(())
 }
 
+/// Löst die Adressen einer Monitor-Zeile (`Backtrace:`, `PC :`) mit `addr2line` und der ELF des letzten Builds auf.
+#[tauri::command]
+pub async fn backtrace_decode(
+    state: State<'_, AppState>,
+    text: String,
+) -> Result<Vec<forge_toolchain::backtrace::Frame>, String> {
+    let addrs = forge_toolchain::backtrace::parse_addresses(&text);
+    if addrs.is_empty() {
+        return Err("In dieser Zeile stehen keine Adressen.".into());
+    }
+    let dir = state
+        .last_build
+        .lock()
+        .map_err(|_| "Zustand gesperrt".to_string())?
+        .as_ref()
+        .map(|b| b.build_dir.clone())
+        .ok_or(
+            "Es gibt noch keinen Build. Kompiliere zuerst, damit die ELF-Datei zum Board passt.",
+        )?;
+    forge_toolchain::backtrace::decode(&dir, &addrs)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 fn ota_account(device_id: &str) -> String {
     format!("ota:{device_id}")
 }

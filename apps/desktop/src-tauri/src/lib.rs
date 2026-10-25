@@ -134,6 +134,7 @@ pub fn run() {
             devices::export_write,
             devices::monitor_reset,
             devices::monitor_set_baud,
+            devices::backtrace_decode,
         ])
         .build(tauri::generate_context!())
         .expect("Forge konnte nicht gestartet werden")

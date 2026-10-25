@@ -12,6 +12,15 @@ export interface MonitorLine {
   text: string;
 }
 
+/** Eine aufgelöste Stelle aus einem Backtrace. `openable`: die Datei gehört zum Projekt. */
+export interface MonitorFrame {
+  addr: string;
+  function: string;
+  file: string;
+  line: number;
+  openable?: boolean;
+}
+
 export type LineEnding = "none" | "nl" | "cr" | "nlcr";
 
 export interface SerialMonitorProps {
@@ -27,6 +36,11 @@ export interface SerialMonitorProps {
   onExport?(text: string): void;
   /** Startet das Board neu. */
   onReset?(): void;
+  /** Zeilen, für die „Auflösen“ angeboten wird (Backtrace, Register-Dump). */
+  canDecode?(line: MonitorLine): boolean;
+  /** Löst die Adressen einer Zeile auf. Fehler werden als Text gezeigt. */
+  onDecode?(line: MonitorLine): Promise<MonitorFrame[]>;
+  onOpenFrame?(frame: MonitorFrame): void;
   height?: number;
   className?: string;
   /** Zusätzliche Schaltflächen am Ende der Leiste. */
@@ -77,6 +91,9 @@ export function SerialMonitor({
   onBaud,
   onExport,
   onReset,
+  canDecode,
+  onDecode,
+  onOpenFrame,
   height,
   className,
   actions,
@@ -92,6 +109,16 @@ export function SerialMonitor({
     if (Number.isInteger(n) && n >= MIN_BAUD && n <= MAX_BAUD) {
       if (n !== baud) onBaud?.(n);
     } else setBaudText(String(baud));
+  };
+  const [decoded, setDecoded] = useState<Record<string, { busy?: boolean; frames?: MonitorFrame[]; error?: string }>>({});
+  const decode = async (key: string, line: MonitorLine) => {
+    setDecoded((d) => ({ ...d, [key]: { busy: true } }));
+    try {
+      const frames = (await onDecode?.(line)) ?? [];
+      setDecoded((d) => ({ ...d, [key]: frames.length ? { frames } : { error: "Keine Stelle gefunden. Passt die ELF-Datei des letzten Builds zum Sketch auf dem Board?" } }));
+    } catch (e) {
+      setDecoded((d) => ({ ...d, [key]: { error: e instanceof Error ? e.message : String(e) } }));
+    }
   };
   const [filterOpen, setFilterOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -192,12 +219,44 @@ export function SerialMonitor({
       <div className="fg-mon-out" ref={out} role="log" aria-live="off">
         {shown.map((l, i) => {
           const kind = l.kind ?? "rx";
+          const key = String(l.id ?? i);
+          const dec = decoded[key];
           return (
-            <div key={l.id ?? i} className={`fg-mon-line fg-mon-line--${kind}`}>
-              {ts && l.t != null ? <span className="fg-mon-ts">{formatTimestamp(l.t)}</span> : null}
-              {kind === "tx" ? <span className="fg-mon-dir">→</span> : null}
-              <span className="fg-mon-text">{kind === "rx" ? keyValues(l.text) : l.text}</span>
-            </div>
+            <Fragment key={key}>
+              <div className={`fg-mon-line fg-mon-line--${kind}`}>
+                {ts && l.t != null ? <span className="fg-mon-ts">{formatTimestamp(l.t)}</span> : null}
+                {kind === "tx" ? <span className="fg-mon-dir">→</span> : null}
+                <span className="fg-mon-text">{kind === "rx" ? keyValues(l.text) : l.text}</span>
+                {onDecode && canDecode?.(l) && !dec?.frames ? (
+                  <button type="button" className="fg-mon-decode" disabled={dec?.busy} onClick={() => void decode(key, l)}>
+                    {dec?.busy ? "Löse auf …" : "Auflösen"}
+                  </button>
+                ) : null}
+              </div>
+              {dec?.error ? <div className="fg-mon-frames is-error">{dec.error}</div> : null}
+              {dec?.frames ? (
+                <div className="fg-mon-frames">
+                  {dec.frames.map((f) => {
+                    const place = `${f.file.slice(f.file.lastIndexOf("/") + 1)}:${f.line}`;
+                    return (
+                      <div key={f.addr} className="fg-mon-frame">
+                        <span className="fg-mono fg-mon-addr">{f.addr}</span>
+                        <span className="fg-mon-fn">{f.function}</span>
+                        {f.openable && onOpenFrame ? (
+                          <button type="button" className="fg-mon-loc" title={f.file} onClick={() => onOpenFrame(f)}>
+                            {place}
+                          </button>
+                        ) : (
+                          <span className="fg-mon-loc is-plain" title={f.file}>
+                            {place}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </Fragment>
           );
         })}
       </div>

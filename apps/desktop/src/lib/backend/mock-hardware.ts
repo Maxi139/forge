@@ -22,6 +22,7 @@ import type {
   SearchOptions,
   SearchResult,
   ModelList,
+  BacktraceFrame,
   MonitorLine,
   SecretStatus,
   MonitorState,
@@ -264,6 +265,7 @@ type HardwareApi = Pick<
   | "saveTextAs"
   | "monitorReset"
   | "monitorSetBaud"
+  | "decodeBacktrace"
 >;
 
 const BOOT_LOG = [
@@ -271,6 +273,15 @@ const BOOT_LOG = [
   "rst:0x1 (POWERON_RESET),boot:0x13 (SPI_FAST_FLASH_BOOT)",
   "I (29) boot: ESP-IDF v5.1.2 2nd stage bootloader",
   "I (312) wifi: Verbunden mit Heimnetz, IP 192.168.1.42",
+];
+
+/** Ein Absturz, wie ihn ein ESP32 meldet. */
+const CRASH_LOG = [
+  "Guru Meditation Error: Core  1 panic'ed (LoadProhibited). Exception was unhandled.",
+  "Core  1 register dump:",
+  "PC      : 0x400d1234  PS      : 0x00060b30  A0      : 0x800d1288  A1      : 0x3ffb1f50",
+  "EXCVADDR: 0x00000000  LBEG    : 0x4008a1c4",
+  "Backtrace: 0x400d1234:0x3ffb1f50 0x400d1288:0x3ffb1f70 0x400d5678:0x3ffb1f90",
 ];
 
 export function createMockHardware(readProject: () => Record<string, string>, opts: { devicesAtStart?: boolean; speed?: number; secretNames?: string[] } = {}): { api: HardwareApi; control: MockControl } {
@@ -300,6 +311,10 @@ export function createMockHardware(readProject: () => Record<string, string>, op
   let monitorTimer: ReturnType<typeof setInterval> | null = null;
   let lineId = 0;
   let started = 0;
+
+  const emitCrash = () => {
+    for (const text of CRASH_LOG) lines.emit([{ id: ++lineId, t: Date.now() - started, kind: text.startsWith("Guru") ? "err" : "rx", text }]);
+  };
 
   const setDevices = (list: DeviceInfo[]) => {
     devices = list;
@@ -431,6 +446,7 @@ export function createMockHardware(readProject: () => Record<string, string>, op
       mstate.emit({ state: "connecting" });
       await sleep(80 * speed);
       mstate.emit({ state: "connected" });
+      setTimeout(() => monitorTimer && emitCrash(), 1500 * speed);
       monitorTimer = setInterval(() => {
         const x = Date.now() / 1000;
         const volts = 1.65 + Math.sin(x * 1.3) * 0.9 + Math.sin(x * 4.1) * 0.18 + (Math.random() - 0.5) * 0.12;
@@ -443,7 +459,10 @@ export function createMockHardware(readProject: () => Record<string, string>, op
       monitorTimer = null;
       mstate.emit({ state: "closed" });
     },
-    monitorWrite: async (text) => void lines.emit([{ id: ++lineId, t: Date.now() - started, kind: "tx", text }]),
+    monitorWrite: async (text) => {
+      lines.emit([{ id: ++lineId, t: Date.now() - started, kind: "tx", text }]);
+      if (text.trim() === "crash") emitCrash();
+    },
     onMonitorLines: lines.on,
     onMonitorState: mstate.on,
 
@@ -487,6 +506,17 @@ export function createMockHardware(readProject: () => Record<string, string>, op
     },
     monitorSetBaud: async (baud) => {
       lines.emit([{ id: ++lineId, t: Date.now() - started, kind: "sys", text: `Baudrate: ${baud}` }]);
+    },
+    decodeBacktrace: async (text) => {
+      if (!/0x[0-9a-f]+/i.test(text)) throw new Error("In dieser Zeile stehen keine Adressen.");
+      if (!lastBuildHash) throw new Error("Es gibt noch keinen Build. Kompiliere zuerst, damit die ELF-Datei zum Board passt.");
+      const main = Object.keys(readProject()).find((p) => p.endsWith(".ino")) ?? "";
+      const frames: BacktraceFrame[] = [
+        { addr: "0x400d1234", function: "readSensor()", file: main, line: 18 },
+        { addr: "0x400d1288", function: "loop()", file: main, line: 31 },
+        { addr: "0x400d5678", function: "loopTask(void*)", file: "/Users/mock/.arduino15/packages/esp32/hardware/esp32/3.2.0/cores/esp32/main.cpp", line: 74 },
+      ];
+      return frames;
     },
     saveTextAs: async (name, text) => {
       exported.set(name, text);

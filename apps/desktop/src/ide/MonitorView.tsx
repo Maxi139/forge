@@ -1,7 +1,8 @@
-import { Button, EmptyState, Plotter, SerialMonitor, type ConnectionState } from "@forge/ui";
+import { Button, EmptyState, Plotter, SerialMonitor, type ConnectionState, type MonitorFrame } from "@forge/ui";
 import { t } from "../i18n/de";
 import { backend } from "../lib/backend";
 import { useHardware } from "../lib/hardware";
+import { isDecodable, projectFileFor } from "../lib/monitor";
 import { useStore } from "../lib/store";
 
 function connection(state: ReturnType<typeof useHardware.getState>["monitor"]["state"]): ConnectionState {
@@ -26,6 +27,18 @@ async function exportLog(text: string) {
   }
 }
 
+async function decodeLine(text: string): Promise<MonitorFrame[]> {
+  const frames = await backend().decodeBacktrace(text);
+  const project = useStore.getState().project;
+  return frames.map((f) => ({ ...f, openable: !!project && projectFileFor(f.file, project.path, project.mainFile) != null }));
+}
+
+function openFrame(f: MonitorFrame) {
+  const project = useStore.getState().project;
+  const file = project ? projectFileFor(f.file, project.path, project.mainFile) : null;
+  if (file) void useStore.getState().gotoLocation({ file, line: f.line, col: 0 });
+}
+
 export function MonitorView() {
   const device = useHardware((s) => s.devices.find((d) => d.id === s.selectedDeviceId) ?? null);
   const monitor = useHardware((s) => s.monitor);
@@ -45,6 +58,9 @@ export function MonitorView() {
       onClear={clearMonitor}
       onBaud={(b) => void setBaud(b)}
       onReset={monitor.open ? () => void resetBoard() : undefined}
+      canDecode={(l) => l.kind !== "tx" && isDecodable(l.text)}
+      onDecode={(l) => decodeLine(l.text)}
+      onOpenFrame={openFrame}
       onExport={(text) => void exportLog(text)}
       actions={
         monitor.open ? (

@@ -39,6 +39,7 @@ import type {
   SearchOptions,
   SearchResult,
   ModelList,
+  BacktraceFrame,
   MonitorLine,
   MonitorState,
   ProjectInfo,
@@ -226,6 +227,9 @@ export interface Backend {
   monitorReset(): Promise<void>;
   /** Ändert die Baudrate bei offenem Monitor, ohne den Port zu schließen. */
   monitorSetBaud(baud: number): Promise<void>;
+  /** Löst Adressen einer Monitor-Zeile mit addr2line gegen den letzten Build auf. */
+  decodeBacktrace(text: string): Promise<BacktraceFrame[]>;
 }
+
 
 
