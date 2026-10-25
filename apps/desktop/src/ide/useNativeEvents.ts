@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { undo, redo } from "@codemirror/commands";
+import { findNext, findPrevious, openSearchPanel } from "@codemirror/search";
 import { EditorView } from "@codemirror/view";
 import { t } from "../i18n/de";
 import { backend } from "../lib/backend";
@@ -16,6 +17,17 @@ function runEdit(kind: "undo" | "redo") {
   document.execCommand(kind);
 }
 
+/** Suchen im aktiven Editor. Ohne Editor im Fokus nimmt der letzte Editor des Fensters die Anfrage. */
+function runFind(kind: "find" | "next" | "previous") {
+  const dom = document.activeElement?.closest(".cm-editor") ?? document.querySelector(".cm-editor");
+  const view = dom ? EditorView.findFromDOM(dom as HTMLElement) : null;
+  if (!view) return;
+  view.focus();
+  if (kind === "find") openSearchPanel(view);
+  else if (kind === "next") findNext(view);
+  else findPrevious(view);
+}
+
 export function useNativeEvents() {
   // Menüleiste
   useEffect(() => {
@@ -25,6 +37,9 @@ export function useNativeEvents() {
       .onMenu((id) => {
         if (id === "edit.undo") return runEdit("undo");
         if (id === "edit.redo") return runEdit("redo");
+        if (id === "edit.find") return runFind("find");
+        if (id === "edit.findNext") return runFind("next");
+        if (id === "edit.findPrevious") return runFind("previous");
         if (id === "view.palette") return useStore.getState().togglePalette(true);
         buildCommands().find((c) => c.id === id)?.run();
       })

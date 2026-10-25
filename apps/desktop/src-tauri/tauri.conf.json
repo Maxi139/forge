@@ -83,6 +83,10 @@
         "PlugIns/ForgeQuickLook.appex": "../../quicklook/build/ForgeQuickLook.appex"
       }
     },
-    "copyright": "Forge"
+    "copyright": "© 2026 Maximilian Schmidt",
+    "publisher": "Maximilian Schmidt",
+    "homepage": "https://github.com/maximilianschmidt/forge",
+    "license": "MIT",
+    "licenseFile": "../../../LICENSE"
   }
 }

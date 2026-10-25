@@ -11,6 +11,13 @@
     "dialog:allow-open",
     "dialog:allow-save",
     "dialog:allow-message",
-    "log:default"
+    "log:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        { "url": "https://github.com/maximilianschmidt/forge" },
+        { "url": "https://github.com/maximilianschmidt/forge/*" }
+      ]
+    }
   ]
 }
