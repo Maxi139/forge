@@ -1,4 +1,5 @@
 mod commands;
+mod logging;
 mod mcp;
 mod menu;
 mod state;
@@ -18,9 +19,13 @@ pub fn mcp_bridge(info: Option<std::path::PathBuf>) {
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(logging::plugin())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(state::AppState::default())
         .setup(|app| {
+            logging::install_panic_hook();
+            log::info!("Forge {} startet", env!("CARGO_PKG_VERSION"));
             {
                 let state = app.state::<state::AppState>();
                 if let Ok(dir) = app.path().app_cache_dir() {

@@ -244,6 +244,13 @@ pub fn build(app: &AppHandle) -> Result<Menu<Wry>> {
     // macOS hängt an das Hilfe-Menü ein Suchfeld, das alle Menüeinträge durchsucht.
     let help = SubmenuBuilder::new(app, "Hilfe")
         .item(&item(app, "view.palette", "Befehlspalette …", None)?)
+        .separator()
+        .item(&item(
+            app,
+            "help.revealLog",
+            "Protokoll im Finder zeigen",
+            None,
+        )?)
         .build()?;
     help.set_as_help_menu_for_nsapp()?;
 
@@ -253,5 +260,9 @@ pub fn build(app: &AppHandle) -> Result<Menu<Wry>> {
 }
 
 pub fn on_event(app: &AppHandle, event: MenuEvent) {
+    if event.id().0 == "help.revealLog" {
+        crate::logging::reveal(app);
+        return;
+    }
     let _ = app.emit("menu", event.id().0.clone());
 }
