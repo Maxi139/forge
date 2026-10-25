@@ -285,23 +285,34 @@ async fn sketch_dir(root: &Path, cache: &Path) -> Result<PathBuf> {
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_default();
     let mirror = cache.join("mirror").join(&stem);
-    tokio::fs::create_dir_all(&mirror).await?;
-    for entry in std::fs::read_dir(root)?.flatten() {
+    mirror_dir(root, &mirror)?;
+    Ok(mirror)
+}
+
+/// Spiegelt Dateien und Unterordner (etwa `src/`) und kopiert nur, was sich geändert hat.
+/// Versteckte Einträge und `build` bleiben außen vor.
+fn mirror_dir(from: &Path, to: &Path) -> Result<()> {
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)?.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
         let path = entry.path();
-        if name.starts_with('.') || name == "build" || path.is_dir() {
+        if name.starts_with('.') || name == "build" {
             continue;
         }
-        let target = mirror.join(&name);
+        let target = to.join(&name);
+        if path.is_dir() {
+            mirror_dir(&path, &target)?;
+            continue;
+        }
         let same = match (std::fs::read(&path), std::fs::read(&target)) {
             (Ok(a), Ok(b)) => a == b,
             _ => false,
         };
         if !same {
-            tokio::fs::copy(&path, &target).await?;
+            std::fs::copy(&path, &target)?;
         }
     }
-    Ok(mirror)
+    Ok(())
 }
 
 fn text_diagnostics(lines: &[String], root: &Path, mirror: &Path) -> Vec<Diagnostic> {
@@ -324,7 +335,11 @@ fn text_diagnostics(lines: &[String], root: &Path, mirror: &Path) -> Vec<Diagnos
         let col: usize = c[3].parse().unwrap_or(1);
         let text = std::fs::read_to_string(&file)
             .ok()
-            .and_then(|t| t.split('\n').nth(line_no as usize - 1).map(str::to_string))
+            .and_then(|t| {
+                t.split('\n')
+                    .nth((line_no as usize).saturating_sub(1))
+                    .map(str::to_string)
+            })
             .unwrap_or_default();
         let from = utf16_col(&text, col.saturating_sub(1));
         out.push(Diagnostic {
@@ -754,6 +769,39 @@ mod tests {
         assert_eq!(d.len(), 1);
         assert_eq!((d[0].line, d[0].from), (1, 21));
         assert!(d[0].message.starts_with("Semikolon erwartet"));
+    }
+
+    #[test]
+    fn line_zero_does_not_underflow() {
+        let tmp = tempfile::tempdir().unwrap();
+        let f = tmp.path().join("a.ino");
+        std::fs::write(&f, "int x;\n").unwrap();
+        let line = format!("{}:0:1: error: expected ';'", f.display());
+        assert_eq!(
+            text_diagnostics(&[line], tmp.path(), Path::new("/nope")).len(),
+            1
+        );
+    }
+
+    #[test]
+    fn mirror_copies_subfolders_but_not_hidden_or_build() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (from, to) = (tmp.path().join("a"), tmp.path().join("b"));
+        std::fs::create_dir_all(from.join("src/inner")).unwrap();
+        std::fs::create_dir_all(from.join("build")).unwrap();
+        std::fs::create_dir_all(from.join(".git")).unwrap();
+        std::fs::write(from.join("a.ino"), "x").unwrap();
+        std::fs::write(from.join("src/util.cpp"), "y").unwrap();
+        std::fs::write(from.join("src/inner/deep.h"), "z").unwrap();
+        std::fs::write(from.join("build/o.bin"), "no").unwrap();
+        std::fs::write(from.join(".git/HEAD"), "no").unwrap();
+        mirror_dir(&from, &to).unwrap();
+        assert!(to.join("a.ino").is_file());
+        assert_eq!(
+            std::fs::read_to_string(to.join("src/inner/deep.h")).unwrap(),
+            "z"
+        );
+        assert!(!to.join("build").exists() && !to.join(".git").exists());
     }
 
     #[test]
