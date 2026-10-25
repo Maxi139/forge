@@ -194,6 +194,18 @@ pub fn build(app: &AppHandle) -> Result<Menu<Wry>> {
             "Befehlspalette …",
             Some("CmdOrCtrl+K"),
         )?)
+        .item(&item(
+            app,
+            "file.quickOpen",
+            "Datei öffnen …",
+            Some("CmdOrCtrl+P"),
+        )?)
+        .item(&item(
+            app,
+            "editor.symbols",
+            "Gehe zu Symbol …",
+            Some("CmdOrCtrl+Shift+O"),
+        )?)
         .separator()
         .item(&item(
             app,

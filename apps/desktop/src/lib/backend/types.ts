@@ -401,3 +401,34 @@ export interface SearchOptions {
   wholeWord: boolean;
   regex: boolean;
 }
+
+/* ---------- Editor-Komfort: Symbole, Umbenennen, Formatieren ---------- */
+export interface LspSymbol {
+  name: string;
+  detail: string | null;
+  /** LSP-`SymbolKind` (12 Funktion, 6 Methode, 5 Klasse, 13 Variable, ...). */
+  kind: number;
+  /** Ab 1. */
+  line: number;
+  /** Ab 0, UTF-16. */
+  col: number;
+  endLine: number;
+  endCol: number;
+  /** Tiefe in der Gliederung, 0 für oberste Ebene. */
+  depth: number;
+  container: string | null;
+}
+
+/** Der Name, der sich umbenennen lässt, samt Stelle. */
+export interface LspRenameTarget {
+  line: number;
+  col: number;
+  endLine: number;
+  endCol: number;
+  name: string;
+}
+
+export interface LspFileEdits {
+  file: string;
+  edits: import("../diagnostics").TextEdit[];
+}

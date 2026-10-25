@@ -25,7 +25,10 @@ import type {
   LibrarySearchHit,
   LspCompletion,
   LspHover,
+  LspFileEdits,
   LspLocation,
+  LspRenameTarget,
+  LspSymbol,
   LspSignature,
   LspTokens,
   McpStatus,
@@ -184,4 +187,18 @@ export interface Backend {
 
   /* Suche */
   search(query: string, options: SearchOptions, overrides: Record<string, string>): Promise<SearchResult>;
+
+  /* Editor-Komfort */
+  /** Ob clang-format gefunden wurde. */
+  formatAvailable(): Promise<boolean>;
+  /** Formatiert den Text einer Datei mit clang-format und gibt das Ergebnis zurück. */
+  formatDocument(path: string, text: string): Promise<string>;
+  /** Gliederung einer Datei (Funktionen, Klassen, Variablen), flach mit Tiefe. `null` ohne Sprachserver. */
+  lspSymbols(file: string): Promise<LspSymbol[] | null>;
+  /** Alle Verwendungen des Namens an der Stelle, nur im Projekt. */
+  lspReferences(file: string, line: number, col: number): Promise<LspLocation[]>;
+  /** Welcher Name sich an der Stelle umbenennen lässt. `null`, wenn nichts oder nichts im Projekt. */
+  lspPrepareRename(file: string, line: number, col: number): Promise<LspRenameTarget | null>;
+  /** Änderungen für das Umbenennen, nur an Projektdateien. */
+  lspRename(file: string, line: number, col: number, newName: string): Promise<LspFileEdits[]>;
 }

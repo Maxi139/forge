@@ -16,7 +16,7 @@ export function fuzzy(query: string, text: string): { score: number; idx: number
   for (let i = 0; i < s.length && j < q.length; i++) {
     if (s[i] === q[j]) {
       idx.push(i);
-      score += (i === prev + 1 ? 3 : 1) + (i === 0 || s[i - 1] === " " ? 2 : 0);
+      score += (i === prev + 1 ? 3 : 1) + (i === 0 ? 3 : " /_-.".includes(s[i - 1]) ? 2 : 0);
       prev = i;
       j++;
     }
