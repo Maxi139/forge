@@ -9,6 +9,7 @@ pub mod fbuild;
 pub mod flash;
 pub mod gcc;
 pub mod hash;
+pub mod memory;
 pub mod models;
 pub mod process;
 pub mod tools;
