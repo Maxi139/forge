@@ -1,3 +1,4 @@
+use crate::convert::{self, Ctx, FileEdits, Location, RenameTarget, Renamed, Symbol};
 use crate::map::LineMap;
 use crate::rpc::Client;
 use crate::Result;
@@ -55,20 +56,6 @@ pub struct Hover {
     pub line: u32,
     pub from: u32,
     pub to: u32,
-}
-
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct Location {
-    pub file: String,
-    /// Ab 1.
-    pub line: u32,
-    /// Ab 0, UTF-16.
-    pub col: u32,
-    pub end_line: u32,
-    pub end_col: u32,
-    /// Außerhalb des Projekts (Bibliothek oder Core), nur zum Lesen.
-    pub external: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -130,25 +117,6 @@ fn uri(path: &Path) -> String {
         }
     }
     out
-}
-
-fn from_uri(u: &str) -> Option<PathBuf> {
-    let rest = u.strip_prefix("file://")?;
-    let bytes = rest.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(v) = u8::from_str_radix(&rest[i + 1..i + 3], 16) {
-                out.push(v);
-                i += 3;
-                continue;
-            }
-        }
-        out.push(bytes[i]);
-        i += 1;
-    }
-    Some(PathBuf::from(String::from_utf8_lossy(&out).into_owned()))
 }
 
 fn is_ino(p: &Path) -> bool {
@@ -222,6 +190,9 @@ impl Lsp {
                             "completion": { "completionItem": { "snippetSupport": true, "documentationFormat": ["plaintext"], "labelDetailsSupport": true } },
                             "hover": { "contentFormat": ["plaintext"] },
                             "definition": { "linkSupport": false },
+                            "references": {},
+                            "rename": { "prepareSupport": true },
+                            "documentSymbol": { "hierarchicalDocumentSymbolSupport": true },
                             "signatureHelp": { "signatureInformation": { "documentationFormat": ["plaintext"], "parameterInformation": { "labelOffsetSupport": true } } },
                             "semanticTokens": { "requests": { "full": true }, "tokenTypes": [], "tokenModifiers": [], "formats": ["relative"] }
                         }
@@ -397,47 +368,17 @@ impl Lsp {
 
     /// Ort bei clangd zurück ins Projekt.
     async fn to_location(&self, loc: &Value) -> Option<Location> {
-        let target = from_uri(loc["uri"].as_str()?.trim())?;
-        let range = &loc["range"];
-        let (sl, sc) = (
-            range["start"]["line"].as_u64()? as u32,
-            range["start"]["character"].as_u64()? as u32,
-        );
-        let (el, ec) = (
-            range["end"]["line"].as_u64()? as u32,
-            range["end"]["character"].as_u64()? as u32,
-        );
-        if target == self.virt {
-            let st = self.state.lock().await;
-            let (file, line) = st.map.to_original(sl)?;
-            let (_, end_line) = st.map.to_original(el).unwrap_or((file, line));
-            return Some(Location {
-                file: file.to_string(),
-                line,
-                col: sc,
-                end_line,
-                end_col: ec,
-                external: false,
-            });
+        let st = self.state.lock().await;
+        convert::location_of(&self.ctx(&st.map), loc)
+    }
+
+    fn ctx<'a>(&'a self, map: &'a LineMap) -> Ctx<'a> {
+        Ctx {
+            map,
+            virt: &self.virt,
+            mirror: &self.mirror,
+            root: &self.root,
         }
-        if let Ok(rel) = target.strip_prefix(&self.mirror) {
-            return Some(Location {
-                file: self.root.join(rel).to_string_lossy().into_owned(),
-                line: sl + 1,
-                col: sc,
-                end_line: el + 1,
-                end_col: ec,
-                external: false,
-            });
-        }
-        Some(Location {
-            file: target.to_string_lossy().into_owned(),
-            line: sl + 1,
-            col: sc,
-            end_line: el + 1,
-            end_col: ec,
-            external: true,
-        })
     }
 
     fn pos_params(doc: &Path, line: u32, col: u32) -> Value {
@@ -658,6 +599,135 @@ impl Lsp {
         }
     }
 
+    /// Gliederung einer Datei, flach mit Tiefe. Erzeugte Prototypen und Symbole anderer Dateien fehlen.
+    pub async fn symbols(&self, file: &str) -> Result<Vec<Symbol>> {
+        let path = PathBuf::from(file);
+        let Some(doc) = self.mirror_path(&path) else {
+            return Ok(vec![]);
+        };
+        let res = self
+            .client
+            .request(
+                "textDocument/documentSymbol",
+                json!({ "textDocument": { "uri": uri(&doc) } }),
+                REQUEST_TIMEOUT,
+            )
+            .await?;
+        let st = self.state.lock().await;
+        Ok(convert::symbols(&self.ctx(&st.map), &doc, file, &res))
+    }
+
+    /// Alle Verwendungen im Projekt. Treffer in Core und Bibliotheken fehlen.
+    pub async fn references(&self, file: &str, line: u32, col: u32) -> Result<Vec<Location>> {
+        let Some((doc, l, c)) = self.locate(file, line, col).await else {
+            return Ok(vec![]);
+        };
+        let mut params = Self::pos_params(&doc, l, c);
+        params["context"] = json!({ "includeDeclaration": true });
+        let res = self
+            .client
+            .request("textDocument/references", params, REQUEST_TIMEOUT)
+            .await?;
+        let mut out: Vec<Location> = Vec::new();
+        for item in res.as_array().map(Vec::as_slice).unwrap_or_default() {
+            if let Some(l) = self.to_location(item).await {
+                if !l.external && !out.contains(&l) {
+                    out.push(l);
+                }
+            }
+        }
+        out.sort_by(|a, b| (&a.file, a.line, a.col).cmp(&(&b.file, b.line, b.col)));
+        Ok(out)
+    }
+
+    /// Welcher Name sich an der Stelle umbenennen lässt. `None`, wenn nichts da ist oder das Symbol
+    /// zu Core oder einer Bibliothek gehört.
+    pub async fn prepare_rename(
+        &self,
+        file: &str,
+        line: u32,
+        col: u32,
+    ) -> Result<Option<RenameTarget>> {
+        let Some((doc, l, c)) = self.locate(file, line, col).await else {
+            return Ok(None);
+        };
+        let res = match self
+            .client
+            .request(
+                "textDocument/prepareRename",
+                Self::pos_params(&doc, l, c),
+                REQUEST_TIMEOUT,
+            )
+            .await
+        {
+            Ok(v) => v,
+            // clangd meldet „nichts umzubenennen“ als Fehler.
+            Err(crate::Error::Server(_)) => return Ok(None),
+            Err(e) => return Err(e),
+        };
+        let target = {
+            let st = self.state.lock().await;
+            convert::rename_target(&self.ctx(&st.map), &doc, &res, |loc| {
+                // Fehlt der Platzhalter, steht der Name im Text bei clangd.
+                let src = &st.docs.get(&doc)?.1;
+                let row = if is_ino(Path::new(file)) {
+                    src.split('\n')
+                        .nth(st.map.to_virtual(&loc.file, loc.line)? as usize)?
+                } else {
+                    src.split('\n').nth(loc.line as usize - 1)?
+                };
+                let units: Vec<u16> = row.encode_utf16().collect();
+                String::from_utf16(units.get(loc.col as usize..loc.end_col as usize)?).ok()
+            })
+        };
+        let Some(target) = target else {
+            return Ok(None);
+        };
+        // Symbole aus Core und Bibliotheken bleiben, wie sie sind.
+        let defs = self.definition(file, line, col).await?;
+        if !defs.is_empty() && defs.iter().all(|d| d.external) {
+            return Ok(None);
+        }
+        Ok(Some(target))
+    }
+
+    /// Änderungen für das Umbenennen. Reichen sie in Core oder Bibliotheken, gibt es einen Fehler.
+    pub async fn rename(
+        &self,
+        file: &str,
+        line: u32,
+        col: u32,
+        new_name: &str,
+    ) -> Result<Vec<FileEdits>> {
+        let valid = !new_name.is_empty()
+            && !new_name.starts_with(|c: char| c.is_ascii_digit())
+            && new_name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_');
+        if !valid {
+            return Err(crate::Error::Server(
+                "Der neue Name darf nur Buchstaben, Ziffern und _ enthalten und nicht mit einer Ziffer beginnen."
+                    .into(),
+            ));
+        }
+        let Some((doc, l, c)) = self.locate(file, line, col).await else {
+            return Ok(vec![]);
+        };
+        let mut params = Self::pos_params(&doc, l, c);
+        params["newName"] = json!(new_name);
+        let res = self
+            .client
+            .request("textDocument/rename", params, REQUEST_TIMEOUT)
+            .await?;
+        let st = self.state.lock().await;
+        match convert::workspace_edit(&self.ctx(&st.map), &res) {
+            Renamed::Files(files) => Ok(files),
+            Renamed::TouchesExternal(f) => Err(crate::Error::Server(format!(
+                "Der Name kommt auch in {f} vor, außerhalb des Projekts. Umbenennen würde den Build brechen."
+            ))),
+        }
+    }
+
     pub fn is_for(&self, root: &Path) -> bool {
         self.root == root
     }
@@ -686,7 +756,7 @@ mod tests {
         let p = PathBuf::from("/Users/me/Mein Projekt/größe.ino");
         let u = uri(&p);
         assert_eq!(u, "file:///Users/me/Mein%20Projekt/gr%C3%B6%C3%9Fe.ino");
-        assert_eq!(from_uri(&u).unwrap(), p);
+        assert_eq!(convert::from_uri(&u).unwrap(), p);
     }
 
     #[test]

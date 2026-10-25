@@ -1,4 +1,5 @@
 import type { Backend } from "./backend";
+import { createMockEditor } from "./mock-editor";
 import { createMockHardware, type MockControl } from "./mock-hardware";
 import type { CreateProjectRequest, FileNode, ForgeConfig, ProjectInfo, RecentProject } from "./types";
 
@@ -216,6 +217,8 @@ export function createMockBackend(opts: { devicesAtStart?: boolean; speed?: numb
       recents = [{ path, name: p.name, kind: p.kind, openedAt: Math.floor(Date.now() / 1000) }, ...recents.filter((r) => r.path !== path)].slice(0, 12);
     },
     removeRecent: async (p) => void (recents = recents.filter((r) => r.path !== p)),
+
+    ...createMockEditor(projectFiles),
   };
 }
 

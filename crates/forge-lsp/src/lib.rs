@@ -2,14 +2,15 @@
 //! semantische Token. clangd sieht den zusammengesetzten Sketch; Positionen werden auf die
 //! Originaldateien zurückgerechnet.
 
+mod convert;
 mod map;
 mod rpc;
 mod session;
 
+pub use convert::{FileEdits, Location, RenameTarget, Symbol, TextEdit};
 pub use map::LineMap;
 pub use session::{
-    CompletionItem, Hover, Location, Lsp, SemanticTokens, SignatureHelp, StartOptions, Template,
-    Token,
+    CompletionItem, Hover, Lsp, SemanticTokens, SignatureHelp, StartOptions, Template, Token,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;

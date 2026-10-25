@@ -30,7 +30,10 @@ import type {
   LibrarySearchHit,
   LspCompletion,
   LspHover,
+  LspFileEdits,
   LspLocation,
+  LspRenameTarget,
+  LspSymbol,
   LspSignature,
   LspTokens,
   PackageNeeds,
@@ -196,5 +199,12 @@ export function createTauriBackend(): Backend {
     // Projekte aus einer .forgeproj-Datei merken sich die Datei, nicht ihren Arbeitsordner.
     pushRecent: (p) => call<void>("recent_push", { path: p.package ?? p.path, name: p.name, kind: p.kind }),
     removeRecent: (path) => call<void>("recent_remove", { path }),
+
+    formatAvailable: () => call<boolean>("format_available"),
+    formatDocument: (path, text) => call<string>("format_document", { path, text }),
+    lspSymbols: (file) => call<LspSymbol[] | null>("lsp_symbols", { file }),
+    lspReferences: (file, line, col) => call<LspLocation[]>("lsp_references", { file, line, col }),
+    lspPrepareRename: (file, line, col) => call<LspRenameTarget | null>("lsp_prepare_rename", { file, line, col }),
+    lspRename: (file, line, col, newName) => call<LspFileEdits[]>("lsp_rename", { file, line, col, newName }),
   };
 }

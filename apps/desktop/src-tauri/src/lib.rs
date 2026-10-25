@@ -116,6 +116,12 @@ pub fn run() {
             recents::recent_list,
             recents::recent_push,
             recents::recent_remove,
+            lsp::format_available,
+            lsp::format_document,
+            lsp::lsp_symbols,
+            lsp::lsp_references,
+            lsp::lsp_prepare_rename,
+            lsp::lsp_rename,
         ])
         .build(tauri::generate_context!())
         .expect("Forge konnte nicht gestartet werden")

@@ -10,7 +10,7 @@ use forge_toolchain::check::{load_texts, CheckRequest};
 use forge_toolchain::hash::short_key;
 use forge_toolchain::CancellationToken;
 use std::collections::{BTreeSet, HashMap};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::State;
 
@@ -219,4 +219,191 @@ pub async fn file_read_external(
     }
     let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
     String::from_utf8(bytes).map_err(|_| "Die Datei ist keine Textdatei.".to_string())
+}
+
+/* ---------- Formatieren (clang-format) ---------- */
+
+fn locate_clang_format() -> Option<PathBuf> {
+    if let Some(p) = std::env::var_os("FORGE_CLANG_FORMAT")
+        .map(PathBuf::from)
+        .filter(|p| p.is_file())
+    {
+        return Some(p);
+    }
+    // Neben clangd liegt meist auch clang-format.
+    let beside = locate_clangd().and_then(|c| c.parent().map(|d| d.join("clang-format")));
+    beside
+        .into_iter()
+        .chain(
+            [
+                "/opt/homebrew/opt/llvm/bin/clang-format",
+                "/opt/homebrew/bin/clang-format",
+                "/usr/local/bin/clang-format",
+                "/usr/bin/clang-format",
+            ]
+            .iter()
+            .map(PathBuf::from),
+        )
+        .find(|p| p.is_file())
+}
+
+/// Eingebauter Stil, wenn das Projekt keine `.clang-format` hat.
+const DEFAULT_STYLE: &str = "{BasedOnStyle: Google, IndentWidth: 2, ColumnLimit: 100}";
+
+/// `--style`-Argument: Eine `.clang-format` im Projekt (bis zur Projektwurzel hinauf) hat Vorrang.
+fn style_arg(root: &Path, file: &Path) -> String {
+    let mut dir = file.parent();
+    while let Some(d) = dir {
+        if d.join(".clang-format").is_file() || d.join("_clang-format").is_file() {
+            return "--style=file".into();
+        }
+        if d == root {
+            break;
+        }
+        dir = d.parent();
+    }
+    format!("--style={DEFAULT_STYLE}")
+}
+
+/// Dateiname, den clang-format für die Spracherkennung sieht: `.ino` wird als C++ behandelt.
+fn assumed_name(file: &Path) -> PathBuf {
+    match file.extension().and_then(|e| e.to_str()) {
+        Some(e) if e.eq_ignore_ascii_case("ino") => file.with_extension("cpp"),
+        _ => file.to_path_buf(),
+    }
+}
+
+/// Ob clang-format gefunden wurde. Ohne bleibt der Befehl in der Oberfläche ausgegraut.
+#[tauri::command]
+pub async fn format_available() -> bool {
+    locate_clang_format().is_some()
+}
+
+/// Formatiert den Text einer Projektdatei. Gibt den neuen Text zurück, schreibt nichts.
+#[tauri::command]
+pub async fn format_document(
+    state: State<'_, AppState>,
+    path: PathBuf,
+    text: String,
+) -> Result<String, String> {
+    use tokio::io::AsyncWriteExt;
+    let root = state.root()?;
+    let tool = locate_clang_format().ok_or(
+        "clang-format wurde nicht gefunden. Installiere es mit „brew install clang-format“.",
+    )?;
+    let mut child = tokio::process::Command::new(tool)
+        .arg(format!(
+            "--assume-filename={}",
+            assumed_name(&path).display()
+        ))
+        .arg(style_arg(&root, &path))
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|e| format!("clang-format konnte nicht gestartet werden: {e}"))?;
+    let mut stdin = child.stdin.take().ok_or("clang-format ohne Eingabe.")?;
+    let writer = tokio::spawn(async move {
+        let _ = stdin.write_all(text.as_bytes()).await;
+    });
+    let out = tokio::time::timeout(std::time::Duration::from_secs(15), child.wait_with_output())
+        .await
+        .map_err(|_| "clang-format antwortet nicht.".to_string())?
+        .map_err(|e| e.to_string())?;
+    let _ = writer.await;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        let first = err.lines().next().unwrap_or("Unbekannter Fehler.");
+        return Err(format!("clang-format: {first}"));
+    }
+    String::from_utf8(out.stdout).map_err(|_| "clang-format lieferte keinen Text.".to_string())
+}
+
+#[cfg(test)]
+mod format_tests {
+    use super::*;
+
+    #[test]
+    fn project_style_file_wins_over_builtin() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        let file = root.join("src/a.cpp");
+        assert!(style_arg(&root, &file).contains("Google"));
+        std::fs::write(root.join(".clang-format"), "BasedOnStyle: LLVM\n").unwrap();
+        assert_eq!(style_arg(&root, &file), "--style=file");
+    }
+
+    #[test]
+    fn sketches_are_formatted_as_cpp() {
+        assert_eq!(
+            assumed_name(Path::new("/p/blink.ino")),
+            PathBuf::from("/p/blink.cpp")
+        );
+        assert_eq!(assumed_name(Path::new("/p/a.h")), PathBuf::from("/p/a.h"));
+    }
+}
+
+/* ---------- Gliederung, Referenzen, Umbenennen ---------- */
+
+/// Gliederung einer Datei. `None` ohne Sprachserver, dann bleibt der Oberfläche die eigene Funktionsliste.
+#[tauri::command]
+pub async fn lsp_symbols(
+    state: State<'_, AppState>,
+    file: String,
+) -> Result<Option<Vec<forge_lsp::Symbol>>, String> {
+    match session(&state).await {
+        Some(l) => l.symbols(&file).await.map(Some).map_err(|e| e.to_string()),
+        None => Ok(None),
+    }
+}
+
+#[tauri::command]
+pub async fn lsp_references(
+    state: State<'_, AppState>,
+    file: String,
+    line: u32,
+    col: u32,
+) -> Result<Vec<Location>, String> {
+    match session(&state).await {
+        Some(l) => l
+            .references(&file, line, col)
+            .await
+            .map_err(|e| e.to_string()),
+        None => Ok(vec![]),
+    }
+}
+
+#[tauri::command]
+pub async fn lsp_prepare_rename(
+    state: State<'_, AppState>,
+    file: String,
+    line: u32,
+    col: u32,
+) -> Result<Option<forge_lsp::RenameTarget>, String> {
+    match session(&state).await {
+        Some(l) => l
+            .prepare_rename(&file, line, col)
+            .await
+            .map_err(|e| e.to_string()),
+        None => Ok(None),
+    }
+}
+
+#[tauri::command]
+pub async fn lsp_rename(
+    state: State<'_, AppState>,
+    file: String,
+    line: u32,
+    col: u32,
+    new_name: String,
+) -> Result<Vec<forge_lsp::FileEdits>, String> {
+    match session(&state).await {
+        Some(l) => l
+            .rename(&file, line, col, &new_name)
+            .await
+            .map_err(|e| e.to_string()),
+        None => Err("Der Sprachserver läuft nicht. Umbenennen braucht clangd.".into()),
+    }
 }
