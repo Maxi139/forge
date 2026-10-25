@@ -19,6 +19,7 @@ import type {
   BuildOutcome,
   ChipProbe,
   ExampleInfo,
+  AppUpdate,
   MemoryDetail,
   OutdatedItem,
   FbuildStatus,
@@ -232,5 +233,8 @@ export function createTauriBackend(): Backend {
       await call<void>("export_write", { path, text });
       return path;
     },
+    appUpdateCheck: () => call<AppUpdate | null>("update_check"),
+    appUpdateInstall: () => call<void>("update_install"),
+    appRestart: () => call<void>("update_restart"),
   };
 }

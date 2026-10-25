@@ -2,11 +2,17 @@
 //! Die IDs entsprechen den Befehlen der Kommandopalette (`file.save`, `view.panel`, ...).
 
 use tauri::menu::{
-    Menu, MenuBuilder, MenuEvent, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder,
+    AboutMetadataBuilder, Menu, MenuBuilder, MenuEvent, MenuItemBuilder, PredefinedMenuItem,
+    SubmenuBuilder,
 };
 use tauri::{AppHandle, Emitter, Wry};
 
 type Result<T> = tauri::Result<T>;
+
+/// Die Projektseite. Dieselben Adressen stehen in `capabilities/default.json` (opener) und im Frontend.
+pub const PROJECT_URL: &str = "https://github.com/maximilianschmidt/forge";
+const ISSUES_URL: &str = "https://github.com/maximilianschmidt/forge/issues/new";
+const DOCS_URL: &str = "https://github.com/maximilianschmidt/forge#readme";
 
 fn item(
     app: &AppHandle,
@@ -50,11 +56,32 @@ pub fn set_enabled(app: &AppHandle, states: &[(String, bool)]) {
 }
 
 pub fn build(app: &AppHandle) -> Result<Menu<Wry>> {
-    let about = PredefinedMenuItem::about(app, Some("Über Forge"), None)?;
+    let about = PredefinedMenuItem::about(
+        app,
+        Some("Über Forge"),
+        Some(
+            AboutMetadataBuilder::new()
+                .name(Some("Forge"))
+                .version(Some(env!("CARGO_PKG_VERSION")))
+                .copyright(Some("© 2026 Maximilian Schmidt"))
+                .authors(Some(vec!["Maximilian Schmidt".to_string()]))
+                .comments(Some("Entwicklungsumgebung für den ESP32"))
+                .website(Some(PROJECT_URL))
+                .website_label(Some("Projektseite"))
+                .license(Some("MIT"))
+                .build(),
+        ),
+    )?;
     let sep = || PredefinedMenuItem::separator(app);
 
     let app_menu = SubmenuBuilder::new(app, "Forge")
         .item(&about)
+        .item(&item(
+            app,
+            "app.checkUpdate",
+            "Nach Updates suchen …",
+            None,
+        )?)
         .separator()
         .item(&item(
             app,
@@ -143,6 +170,20 @@ pub fn build(app: &AppHandle) -> Result<Menu<Wry>> {
         .item(&PredefinedMenuItem::select_all(
             app,
             Some("Alles auswählen"),
+        )?)
+        .separator()
+        .item(&item(app, "edit.find", "Suchen …", Some("CmdOrCtrl+F"))?)
+        .item(&item(
+            app,
+            "edit.findNext",
+            "Weitersuchen",
+            Some("CmdOrCtrl+G"),
+        )?)
+        .item(&item(
+            app,
+            "edit.findPrevious",
+            "Rückwärts suchen",
+            Some("CmdOrCtrl+Shift+G"),
         )?)
         .build()?;
 
@@ -239,11 +280,24 @@ pub fn build(app: &AppHandle) -> Result<Menu<Wry>> {
     let window = SubmenuBuilder::new(app, "Fenster")
         .item(&PredefinedMenuItem::minimize(app, Some("Minimieren"))?)
         .item(&PredefinedMenuItem::maximize(app, Some("Zoomen"))?)
+        .separator()
+        .item(&PredefinedMenuItem::bring_all_to_front(
+            app,
+            Some("Alle in den Vordergrund"),
+        )?)
         .build()?;
 
     // macOS hängt an das Hilfe-Menü ein Suchfeld, das alle Menüeinträge durchsucht.
     let help = SubmenuBuilder::new(app, "Hilfe")
-        .item(&item(app, "view.palette", "Befehlspalette …", None)?)
+        .item(&item(app, "help.docs", "Dokumentation", None)?)
+        .item(&item(app, "help.report", "Problem melden …", None)?)
+        .separator()
+        .item(&item(
+            app,
+            "help.revealLog",
+            "Protokoll im Finder zeigen",
+            None,
+        )?)
         .build()?;
     help.set_as_help_menu_for_nsapp()?;
 
@@ -253,5 +307,17 @@ pub fn build(app: &AppHandle) -> Result<Menu<Wry>> {
 }
 
 pub fn on_event(app: &AppHandle, event: MenuEvent) {
+    let url = match event.id().0.as_str() {
+        "help.revealLog" => return crate::logging::reveal(app),
+        "help.docs" => Some(DOCS_URL),
+        "help.report" => Some(ISSUES_URL),
+        _ => None,
+    };
+    if let Some(url) = url {
+        if let Err(e) = tauri_plugin_opener::open_url(url, None::<&str>) {
+            log::warn!("Adresse lässt sich nicht öffnen ({url}): {e}");
+        }
+        return;
+    }
     let _ = app.emit("menu", event.id().0.clone());
 }

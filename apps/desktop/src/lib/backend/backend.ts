@@ -14,6 +14,7 @@ import type {
   BuildOutcome,
   ChipProbe,
   ExampleInfo,
+  AppUpdate,
   MemoryDetail,
   OutdatedItem,
   FbuildStatus,
@@ -229,6 +230,11 @@ export interface Backend {
   monitorSetBaud(baud: number): Promise<void>;
   /** Löst Adressen einer Monitor-Zeile mit addr2line gegen den letzten Build auf. */
   decodeBacktrace(text: string): Promise<BacktraceFrame[]>;
+  /** Fragt den Update-Server. Wirft, wenn Updates nicht eingerichtet sind oder der Server nicht antwortet. */
+  appUpdateCheck(): Promise<AppUpdate | null>;
+  /** Lädt und installiert das Update. Der Neustart folgt mit `appRestart`. */
+  appUpdateInstall(): Promise<void>;
+  appRestart(): Promise<void>;
 }
 
 

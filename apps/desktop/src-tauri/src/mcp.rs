@@ -109,7 +109,7 @@ pub fn start_if_enabled(app: &AppHandle) {
         let handle = app.clone();
         tauri::async_runtime::spawn(async move {
             if let Err(e) = start(&handle).await {
-                eprintln!("MCP-Server startet nicht: {e}");
+                log::error!("MCP-Server startet nicht: {e}");
             }
         });
     }

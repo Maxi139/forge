@@ -1,4 +1,5 @@
 mod commands;
+mod logging;
 mod mcp;
 mod menu;
 mod state;
@@ -7,7 +8,7 @@ mod watch;
 
 use commands::{
     ai, boardcfg, build, devices, examples, files, libraries, lsp, package, project, recents,
-    search, secrets, toolchain,
+    search, secrets, toolchain, updater,
 };
 use tauri::{Emitter, Manager};
 
@@ -18,9 +19,34 @@ pub fn mcp_bridge(info: Option<std::path::PathBuf>) {
 
 pub fn run() {
     tauri::Builder::default()
+        // Muss das erste Plugin sein: Ein zweiter Start reicht seine Pfade an die laufende App weiter.
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            let paths: Vec<std::path::PathBuf> = args
+                .iter()
+                .skip(1)
+                .map(std::path::PathBuf::from)
+                .filter(|p| p.exists())
+                .collect();
+            log::info!("Zweiter Start, {} Pfad(e) übergeben", paths.len());
+            if let Some(path) = paths.into_iter().next() {
+                *app.state::<state::AppState>().pending_open.lock().unwrap() = Some(path.clone());
+                let _ = app.emit("open-path", path);
+            }
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }))
+        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(logging::plugin())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .manage(state::AppState::default())
         .setup(|app| {
+            logging::install_panic_hook();
+            log::info!("Forge {} startet", env!("CARGO_PKG_VERSION"));
             {
                 let state = app.state::<state::AppState>();
                 if let Ok(dir) = app.path().app_cache_dir() {
@@ -135,6 +161,9 @@ pub fn run() {
             devices::monitor_reset,
             devices::monitor_set_baud,
             devices::backtrace_decode,
+            updater::update_check,
+            updater::update_install,
+            updater::update_restart,
         ])
         .build(tauri::generate_context!())
         .expect("Forge konnte nicht gestartet werden")

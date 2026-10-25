@@ -1,6 +1,7 @@
 import { Button, EmptyState } from "@forge/ui";
 import { Component, type ReactNode } from "react";
 import { t } from "../i18n/de";
+import { reportError } from "../lib/log";
 import { stashUnsaved } from "../lib/store";
 
 interface Props {
@@ -22,7 +23,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error) {
-    console.error("Oberfläche abgestürzt", error);
+    reportError("Oberfläche abgestürzt", error);
   }
 
   render() {

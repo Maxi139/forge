@@ -1,9 +1,11 @@
 {
   "name": "forge",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "scripts": {
     "tokens": "node scripts/gen-tokens.mjs",
+    "version:check": "node scripts/sync-version.mjs --check",
+    "licenses": "node scripts/gen-licenses.mjs",
     "test": "pnpm -r test"
   },
   "packageManager": "pnpm@11.0.8",

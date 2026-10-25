@@ -32,7 +32,15 @@
     ],
     "macOSPrivateApi": false,
     "security": {
-      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost"
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; form-action 'none'"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/maximilianschmidt/forge/releases/latest/download/latest.json"
+      ],
+      "pubkey": ""
     }
   },
   "bundle": {
@@ -83,6 +91,10 @@
         "PlugIns/ForgeQuickLook.appex": "../../quicklook/build/ForgeQuickLook.appex"
       }
     },
-    "copyright": "Forge"
+    "copyright": "© 2026 Maximilian Schmidt",
+    "publisher": "Maximilian Schmidt",
+    "homepage": "https://github.com/maximilianschmidt/forge",
+    "license": "MIT",
+    "licenseFile": "../../../LICENSE"
   }
 }

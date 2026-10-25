@@ -4,7 +4,7 @@ ESP32-IDE für macOS. Tauri 2 (Rust) mit React-Oberfläche, gebaut nach dem Forg
 
 ## Entwickeln
 
-Voraussetzungen: Rust, Node 20+, pnpm, `arduino-cli` (`brew install arduino-cli`).
+Voraussetzungen: Rust, Node 20.19+, pnpm, `arduino-cli` (`brew install arduino-cli`).
 
 ```bash
 pnpm install
@@ -19,7 +19,11 @@ Nur die Oberfläche mit Mock-Backend: `pnpm --filter @forge/desktop dev`, dann `
 cargo test --workspace
 pnpm --filter @forge/desktop exec vitest run
 pnpm --filter @forge/desktop exec tsc --noEmit
+pnpm exec biome check .
+node scripts/sync-version.mjs --check
 ```
+
+Die Version steht in `Cargo.toml`; `node scripts/sync-version.mjs 0.2.0` setzt sie überall. Die Lizenzliste erzeugt `node scripts/gen-licenses.mjs`. Biome prüft nur den Lint, bekannte Verstöße des Bestands sind in `biome.json` abgeschaltet.
 
 ## Aufbau
 

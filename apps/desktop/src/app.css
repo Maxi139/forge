@@ -267,3 +267,13 @@ input, textarea, .cm-content, .fg-mon-out, .fg-hover { -webkit-user-select: text
 .search-refs-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px 6px; font: 500 12px/1.4 var(--font-sans); color: var(--ink); }
 .search-refs-close { border: 0; background: transparent; color: var(--ink-muted); font: 400 11.5px var(--font-sans); cursor: pointer; text-decoration: underline; }
 .search-refs-close:hover { color: var(--ink); }
+
+/* Einstellungen → Info */
+.about-version { font: 600 14px/1.3 var(--font-sans); color: var(--ink); }
+.about-links { display: flex; gap: 8px; align-items: center; }
+.license-list { display: flex; flex-direction: column; max-height: 260px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; }
+.license-group { position: sticky; top: 0; padding: 6px 10px; background: var(--surface-2, var(--bg)); font: 600 11px/1 var(--font-sans); color: var(--ink-muted); }
+.license-row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 10px; border: 0; background: none; text-align: left; font: 400 12px/1.3 var(--font-mono); color: var(--ink); cursor: pointer; }
+.license-row:hover, .license-row[aria-expanded="true"] { background: var(--hover, rgba(127, 127, 127, 0.12)); }
+.license-id { color: var(--ink-muted); white-space: nowrap; }
+.license-text { margin: 0; padding: 8px 10px; max-height: 200px; overflow: auto; white-space: pre-wrap; font: 400 11px/1.4 var(--font-mono); color: var(--ink-muted); border-top: 1px solid var(--line); }

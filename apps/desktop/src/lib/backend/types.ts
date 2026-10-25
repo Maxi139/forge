@@ -485,3 +485,9 @@ export interface BacktraceFrame {
   file: string;
   line: number;
 }
+
+/** Ein Update des Programms selbst, gemeldet vom Update-Server. */
+export interface AppUpdate {
+  version: string;
+  notes: string | null;
+}

@@ -5,6 +5,7 @@ import { useHardware } from "../lib/hardware";
 import { useStore } from "../lib/store";
 import { findReferences, formatActive, renameSymbol } from "../editor/actions";
 import { useFormat } from "../editor/format";
+import { useAppUpdate } from "../lib/appUpdate";
 
 export interface RunnableCommand extends Command {
   run(): void;
@@ -68,6 +69,7 @@ export function buildCommands(): RunnableCommand[] {
     hasProject && !!s.active && { id: "editor.references", group: g.file, label: t.commands.findReferences, icon: "search", shortcut: ["⇧", "F12"], run: () => void findReferences() },
     { id: "example.open", group: g.file, label: t.examples.command, icon: "file-code", run: () => s.setDialog({ kind: "examples" }) },
     { id: "library.installZip", group: g.view, label: t.updates.installZip, icon: "library", run: () => void useHardware.getState().installLibraryZip() },
+    { id: "app.checkUpdate", group: g.view, label: t.appUpdate.command, icon: "refresh", run: () => void useAppUpdate.getState().check() },
   ];
   return list.filter((c): c is RunnableCommand => c !== false);
 }

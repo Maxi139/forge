@@ -1,0 +1,83 @@
+name: Release
+
+# Ein Tag `v*` baut Forge, signiert und notarisiert die App und legt DMG, Update-Paket
+# und latest.json als Entwurf eines GitHub Release ab. Einrichtung: docs/release.md.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-14
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Tag und Version prüfen
+        run: |
+          node scripts/sync-version.mjs --check
+          version=$(node -p "require('./apps/desktop/package.json').version")
+          if [ "v$version" != "${GITHUB_REF_NAME}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} passt nicht zur Version $version"
+            exit 1
+          fi
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @forge/desktop exec tsc --noEmit
+      - run: pnpm --filter @forge/desktop exec vitest run
+      - run: cargo test --workspace
+
+      # Ohne die Secrets bricht der Lauf hier ab, statt eine unsignierte App zu veröffentlichen.
+      - name: Secrets prüfen
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          for v in APPLE_CERTIFICATE APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID TAURI_SIGNING_PRIVATE_KEY; do
+            if [ -z "${!v}" ]; then echo "Secret fehlt: $v"; exit 1; fi
+          done
+
+      - name: Bauen, signieren, notarisieren und veröffentlichen
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Nur im Release entstehen Update-Artefakte (Forge.app.tar.gz und .sig).
+          TAURI_CONFIG: '{"bundle":{"createUpdaterArtifacts":true}}'
+        with:
+          projectPath: apps/desktop
+          tauriScript: pnpm tauri
+          args: --target aarch64-apple-darwin --bundles app,dmg
+          tagName: ${{ github.ref_name }}
+          releaseName: Forge ${{ github.ref_name }}
+          releaseBody: Änderungen stehen im CHANGELOG.md.
+          releaseDraft: true
+          prerelease: false
+          uploadUpdaterJson: true
