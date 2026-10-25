@@ -4,7 +4,7 @@ ESP32-IDE für macOS. Tauri 2 (Rust) mit React-Oberfläche, gebaut nach dem Forg
 
 ## Entwickeln
 
-Voraussetzungen: Rust, Node 20+, pnpm, `arduino-cli` (`brew install arduino-cli`).
+Voraussetzungen: Rust, Node 20.19+, pnpm, `arduino-cli` (`brew install arduino-cli`).
 
 ```bash
 pnpm install
