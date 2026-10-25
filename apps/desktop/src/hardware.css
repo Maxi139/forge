@@ -22,3 +22,7 @@
 .mem-sym .size { flex: none; }
 
 .ota-box { display: flex; flex-direction: column; gap: 6px; }
+
+.ide-bottom-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); height: 100%; min-height: 0; }
+.ide-bottom-split > * { min-width: 0; min-height: 0; overflow: hidden; }
+.ide-bottom-split > * + * { border-left: 1px solid var(--line); }

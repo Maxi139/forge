@@ -59,6 +59,8 @@ export const de = {
     hide: "Panel ausblenden",
     show: "Panel einblenden",
     clearOutput: "Ausgabe leeren",
+    split: "Monitor und Plotter nebeneinander",
+    unsplit: "Monitor und Plotter einzeln",
   },
 
   titlebar: {
