@@ -271,6 +271,7 @@ button.fg-status-item:hover { background: var(--surface-hover); color: var(--ink
 .fg-mon-filter .fg-field { flex: 1; min-width: 80px; max-width: 320px; width: auto; }
 .fg-mon-filter .fg-toggle { white-space: nowrap; }
 .fg-mon-count { margin-left: auto; font-size: 11.5px; color: var(--ink-faint); white-space: nowrap; }
+.fg-mon-status { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--warning); }
 .fg-mon-out { flex: 1; min-height: 0; overflow: auto; padding: 8px 12px; font-family: var(--font-mono); font-size: 12.5px; line-height: 19px; font-variant-numeric: tabular-nums; }
 .fg-mon-line { display: flex; gap: 12px; white-space: pre-wrap; word-break: break-all; animation: fg-nudge var(--dur-1) var(--ease); }
 .fg-mon-ts { color: var(--ink-faint); flex: none; user-select: none; }

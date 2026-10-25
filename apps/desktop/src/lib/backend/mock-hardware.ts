@@ -465,6 +465,15 @@ export function createMockHardware(readProject: () => Record<string, string>, op
     monitorWrite: async (text) => {
       lines.emit([{ id: ++lineId, t: Date.now() - started, kind: "tx", text }]);
       if (text.trim() === "crash") emitCrash();
+      if (text.trim() === "disconnect") {
+        // Wie ein gezogenes Kabel: Der Monitor meldet den Grund und verbindet sich nach kurzer Zeit neu.
+        mstate.emit({ state: "reconnecting", reason: "Verbindung verloren" });
+        setTimeout(() => {
+          if (!monitorTimer) return;
+          mstate.emit({ state: "connected" });
+          lines.emit([{ id: ++lineId, t: Date.now() - started, kind: "sys", text: "Verbindung wiederhergestellt." }]);
+        }, 2500 * speed);
+      }
     },
     onMonitorLines: lines.on,
     onMonitorState: mstate.on,

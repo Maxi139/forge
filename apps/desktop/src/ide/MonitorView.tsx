@@ -54,6 +54,7 @@ export function MonitorView() {
       port={device.port}
       baud={monitor.baud}
       state={connection(monitor.state)}
+      statusText={monitor.state.state === "reconnecting" ? t.monitor.reconnecting(monitor.state.reason) : undefined}
       onSend={(text, ending) => void sendToMonitor(text, ending)}
       onClear={clearMonitor}
       onBaud={(b) => void setBaud(b)}

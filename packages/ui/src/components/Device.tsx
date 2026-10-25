@@ -28,6 +28,8 @@ export interface SerialMonitorProps {
   port?: string;
   baud?: number;
   state?: ConnectionState;
+  /** Zusatz zum Status, etwa der Grund für ein Neuverbinden. */
+  statusText?: string;
   timestamps?: boolean;
   onSend?(text: string, ending: LineEnding): void;
   onClear?(): void;
@@ -85,6 +87,7 @@ export function SerialMonitor({
   port,
   baud = 115200,
   state = "connected",
+  statusText,
   timestamps = true,
   onSend,
   onClear,
@@ -166,6 +169,11 @@ export function SerialMonitor({
       <div className="fg-mon-bar">
         <StatusDot state={state} />
         <span className="fg-mon-port">{port ?? "Kein Port"}</span>
+        {statusText ? (
+          <span className="fg-mon-status" role="status" title={statusText}>
+            {statusText}
+          </span>
+        ) : null}
         <span className="fg-spacer" />
         <Toggle icon="clock" title="Zeitstempel" on={ts} onToggle={() => setTs(!ts)} />
         <Toggle icon="arrow-down" title="Autoscroll" on={auto} onToggle={() => setAuto(!auto)} />
