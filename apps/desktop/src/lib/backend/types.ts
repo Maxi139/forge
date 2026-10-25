@@ -477,3 +477,9 @@ export interface MemoryDetail {
   groups: MemoryGroup[];
   symbols: SymbolSize[];
 }
+
+/** Ein Update des Programms selbst, gemeldet vom Update-Server. */
+export interface AppUpdate {
+  version: string;
+  notes: string | null;
+}

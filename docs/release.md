@@ -30,7 +30,32 @@ Mit gesetzten Variablen signiert `tauri build` mit Hardened Runtime (`Entitlemen
 
 ## Updates
 
-Die App aktualisiert sich noch nicht selbst. Dafür braucht es `tauri-plugin-updater`, ein Schlüsselpaar (`pnpm tauri signer generate`) und einen Ort für `latest.json`. Der private Schlüssel gehört in den Schlüsselbund des Release-Rechners, nicht ins Repository.
+Forge prüft über `tauri-plugin-updater`, ob es eine neuere Version gibt (Menü „Nach Updates suchen …“, beim Start abschaltbar unter Einstellungen → Info). Der Stand im Repository ist ein **Platzhalter**, bis du einen Schlüssel erzeugt hast:
+
+- `plugins.updater.endpoints` in `apps/desktop/src-tauri/tauri.conf.json` zeigt auf `https://github.com/maximilianschmidt/forge/releases/latest/download/latest.json`. Ersetze die Adresse durch deine echte Projektseite (dieselbe steht in `menu.rs`, `src/lib/links.ts` und `capabilities/default.json`).
+- `plugins.updater.pubkey` ist leer. Solange er leer ist, meldet die Prüfung „nicht eingerichtet“. Beim Start bleibt das unsichtbar (nur ein Eintrag im Protokoll), und die App läuft normal.
+
+### Schlüsselpaar erzeugen
+
+```bash
+pnpm --filter @forge/desktop tauri signer generate -w ~/.tauri/forge.key
+```
+
+Das Kommando fragt nach einem Passwort und schreibt `forge.key` (privat) und `forge.key.pub` (öffentlich).
+
+1. Den Inhalt von `forge.key.pub` trägst du als `pubkey` in `tauri.conf.json` ein.
+2. Den privaten Schlüssel legst du **nicht** ins Repository. Für den Release-Workflow kommt sein Inhalt in das GitHub-Secret `TAURI_SIGNING_PRIVATE_KEY`, das Passwort in `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+3. Zum Bauen mit Update-Artefakten (`Forge.app.tar.gz` und `.sig`) setzt der Workflow `TAURI_CONFIG='{"bundle":{"createUpdaterArtifacts":true}}'`. Lokale Builds erzeugen keine Update-Artefakte und brauchen den Schlüssel nicht.
+
+Geht der private Schlüssel verloren, kann keine installierte Version mehr ein Update annehmen. Bewahre ihn also zusätzlich im Passwortmanager auf.
+
+## Release-Workflow
+
+`.github/workflows/release.yml` läuft bei jedem Tag `v*`: Er prüft, dass der Tag zur Version in `Cargo.toml` passt, baut die App, signiert und notarisiert sie, hängt `Forge_<Version>_aarch64.dmg`, `Forge.app.tar.gz`, `.sig` und `latest.json` an ein GitHub Release (Entwurf).
+
+Secrets: `APPLE_CERTIFICATE` (Developer-ID-Zertifikat als base64-`.p12`), `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`, `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+
+Eine neue Version: `node scripts/sync-version.mjs 0.2.0`, `CHANGELOG.md` ergänzen, committen, `git tag v0.2.0`, pushen.
 
 ## Werkzeuge im Bundle
 

@@ -231,6 +231,9 @@ export function createMockBackend(opts: { devicesAtStart?: boolean; speed?: numb
       projects.set(dir, { kind: "sketch", name, path: dir, mainFile: `${dir}/${name}.ino`, config: config(name) });
       return open(dir);
     },
+    appUpdateCheck: async () => null,
+    appUpdateInstall: async () => undefined,
+    appRestart: async () => undefined,
   };
 }
 

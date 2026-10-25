@@ -535,6 +535,22 @@ export const de = {
     failed: "Die Aufschlüsselung ist nicht verfügbar",
   },
 
+  appUpdate: {
+    checkNow: "Jetzt nach Updates suchen",
+    checking: "Suche …",
+    auto: "Beim Start nach Updates suchen",
+    current: "Forge ist auf dem neuesten Stand",
+    available: (v: string) => `Forge ${v} ist verfügbar`,
+    install: "Installieren",
+    later: "Später",
+    installing: (v: string) => `Lade Forge ${v} …`,
+    installed: (v: string) => `Forge ${v} ist installiert`,
+    restart: "Neu starten",
+    failed: "Die Suche nach Updates ist fehlgeschlagen",
+    installFailed: "Das Update ließ sich nicht installieren",
+    command: "Nach Updates suchen …",
+  },
+
   about: {
     section: "Info",
     version: (v: string) => `Version ${v}`,

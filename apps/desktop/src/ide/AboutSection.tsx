@@ -1,6 +1,7 @@
-import { Button, Input } from "@forge/ui";
+import { Button, Checkbox, Input } from "@forge/ui";
 import { useState } from "react";
 import { t } from "../i18n/de";
+import { useAppUpdate } from "../lib/appUpdate";
 import { openExternal, PROJECT_URL } from "../lib/links";
 import { reportError } from "../lib/log";
 
@@ -60,6 +61,8 @@ function LicenseList({ data }: { data: Licenses }) {
 export function AboutSection() {
   const [shown, setShown] = useState(false);
   const [data, setData] = useState<Licenses | null>(null);
+  const autoCheck = useAppUpdate((s) => s.autoCheck);
+  const busy = useAppUpdate((s) => s.busy);
 
   const toggle = () => {
     setShown((v) => !v);
@@ -85,6 +88,12 @@ export function AboutSection() {
             {shown ? t.about.hide : t.about.show}
           </Button>
         </div>
+        <div className="about-links">
+          <Button variant="secondary" size="sm" busy={busy} onClick={() => void useAppUpdate.getState().check()}>
+            {busy ? t.appUpdate.checking : t.appUpdate.checkNow}
+          </Button>
+        </div>
+        <Checkbox label={t.appUpdate.auto} checked={autoCheck} onChange={(e) => useAppUpdate.getState().setAutoCheck(e.target.checked)} />
         {shown ? (
           <>
             <div className="settings-note">{t.about.licensesText}</div>

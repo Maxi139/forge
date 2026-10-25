@@ -3,6 +3,7 @@ import { undo, redo } from "@codemirror/commands";
 import { findNext, findPrevious, openSearchPanel } from "@codemirror/search";
 import { EditorView } from "@codemirror/view";
 import { t } from "../i18n/de";
+import { startupUpdateCheck } from "../lib/appUpdate";
 import { backend } from "../lib/backend";
 import { baseName, useStore } from "../lib/store";
 import { buildCommands } from "./commands";
@@ -29,6 +30,8 @@ function runFind(kind: "find" | "next" | "previous") {
 }
 
 export function useNativeEvents() {
+  useEffect(() => startupUpdateCheck(), []);
+
   // Menüleiste
   useEffect(() => {
     let off: (() => void) | undefined;

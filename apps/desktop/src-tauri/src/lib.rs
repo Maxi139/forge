@@ -8,7 +8,7 @@ mod watch;
 
 use commands::{
     ai, boardcfg, build, devices, examples, files, libraries, lsp, package, project, recents,
-    search, secrets, toolchain,
+    search, secrets, toolchain, updater,
 };
 use tauri::{Emitter, Manager};
 
@@ -41,6 +41,7 @@ pub fn run() {
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(logging::plugin())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .manage(state::AppState::default())
         .setup(|app| {
@@ -156,6 +157,9 @@ pub fn run() {
             build::build_memory_detail,
             devices::ota_password_status,
             devices::ota_password_set,
+            updater::update_check,
+            updater::update_install,
+            updater::update_restart,
         ])
         .build(tauri::generate_context!())
         .expect("Forge konnte nicht gestartet werden")

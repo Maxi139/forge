@@ -76,6 +76,12 @@ pub fn build(app: &AppHandle) -> Result<Menu<Wry>> {
 
     let app_menu = SubmenuBuilder::new(app, "Forge")
         .item(&about)
+        .item(&item(
+            app,
+            "app.checkUpdate",
+            "Nach Updates suchen …",
+            None,
+        )?)
         .separator()
         .item(&item(
             app,

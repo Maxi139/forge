@@ -19,6 +19,7 @@ import type {
   BuildOutcome,
   ChipProbe,
   ExampleInfo,
+  AppUpdate,
   MemoryDetail,
   OutdatedItem,
   FbuildStatus,
@@ -222,5 +223,8 @@ export function createTauriBackend(): Backend {
     memoryDetail: () => call<MemoryDetail>("build_memory_detail"),
     otaPasswordSet: (deviceId) => call<boolean>("ota_password_status", { deviceId }),
     setOtaPassword: (deviceId, password) => call<void>("ota_password_set", { deviceId, password }),
+    appUpdateCheck: () => call<AppUpdate | null>("update_check"),
+    appUpdateInstall: () => call<void>("update_install"),
+    appRestart: () => call<void>("update_restart"),
   };
 }

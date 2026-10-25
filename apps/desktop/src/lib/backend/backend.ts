@@ -14,6 +14,7 @@ import type {
   BuildOutcome,
   ChipProbe,
   ExampleInfo,
+  AppUpdate,
   MemoryDetail,
   OutdatedItem,
   FbuildStatus,
@@ -220,4 +221,9 @@ export interface Backend {
   memoryDetail(): Promise<MemoryDetail>;
   otaPasswordSet(deviceId: string): Promise<boolean>;
   setOtaPassword(deviceId: string, password: string | null): Promise<void>;
+  /** Fragt den Update-Server. Wirft, wenn Updates nicht eingerichtet sind oder der Server nicht antwortet. */
+  appUpdateCheck(): Promise<AppUpdate | null>;
+  /** Lädt und installiert das Update. Der Neustart folgt mit `appRestart`. */
+  appUpdateInstall(): Promise<void>;
+  appRestart(): Promise<void>;
 }
