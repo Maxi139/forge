@@ -1,5 +1,5 @@
 use crate::models::*;
-use crate::process::{capture, os, stream, Captured, Stream};
+use crate::process::{capture, os, stream, stream_with_env, Captured, Stream};
 use crate::{CancellationToken, Error, Result};
 use serde::de::DeserializeOwned;
 use std::ffi::OsString;
@@ -357,6 +357,73 @@ impl ArduinoCli {
             .await
     }
 
+    /// Beispiele aller installierten Bibliotheken und Cores, optional nur für ein Board.
+    pub async fn examples(&self, fqbn: Option<&str>) -> Result<Vec<ExampleInfo>> {
+        let mut args = vec!["lib", "examples", "--json"];
+        if let Some(f) = fqbn {
+            args.extend(["--fqbn", f]);
+        }
+        let raw: RawExampleList = self.json(&args, Duration::from_secs(60)).await?;
+        Ok(examples_from(raw))
+    }
+
+    /// Veraltete Bibliotheken (`arduino-cli outdated`).
+    pub async fn outdated_libraries(&self) -> Result<Vec<OutdatedItem>> {
+        let raw: RawOutdated = self
+            .json(&["outdated", "--json"], Duration::from_secs(60))
+            .await?;
+        Ok(outdated_from(raw).0)
+    }
+
+    pub async fn upgrade_core(
+        &self,
+        id: &str,
+        cancel: &CancellationToken,
+        on_line: impl FnMut(Stream, &str),
+    ) -> Result<()> {
+        self.streamed(&["core", "upgrade", id], cancel, on_line)
+            .await
+    }
+
+    /// Installiert eine Bibliothek aus einer ZIP-Datei. arduino-cli verlangt dafür eine Freigabe, die wir nur
+    /// für diesen einen Aufruf setzen.
+    pub async fn install_library_zip(
+        &self,
+        zip: &Path,
+        cancel: &CancellationToken,
+        mut on_line: impl FnMut(Stream, &str),
+    ) -> Result<()> {
+        let mut errors = Vec::new();
+        let args = [
+            OsString::from("lib"),
+            "install".into(),
+            "--zip-path".into(),
+            zip.as_os_str().to_owned(),
+        ];
+        let code = stream_with_env(
+            &self.path,
+            &args,
+            None,
+            "C",
+            &[("ARDUINO_LIBRARY_ENABLE_UNSAFE_INSTALL", "true")],
+            cancel,
+            |s, l| {
+                if s == Stream::Stderr {
+                    errors.push(l.to_string());
+                }
+                on_line(s, l);
+            },
+        )
+        .await?;
+        if code == Some(0) {
+            Ok(())
+        } else {
+            Err(Error::Failed(errors.last().cloned().unwrap_or_else(|| {
+                "Die ZIP-Datei ließ sich nicht installieren.".into()
+            })))
+        }
+    }
+
     async fn streamed(
         &self,
         args: &[&str],
@@ -387,6 +454,84 @@ impl ArduinoCli {
     pub fn path(&self) -> &Path {
         &self.path
     }
+}
+
+/// Wie alt die Paketliste im Datenordner von arduino-cli ist. `None`, wenn es keine gibt.
+pub fn index_age(data_dir: &Path) -> Option<Duration> {
+    ["package_esp32_index.json", "package_index.json"]
+        .iter()
+        .filter_map(|n| std::fs::metadata(data_dir.join(n)).ok()?.modified().ok())
+        .max()
+        .map(|m| m.elapsed().unwrap_or_default())
+}
+
+/// Wandelt die Ausgabe von `lib examples` in eine flache, sortierte Liste.
+fn examples_from(raw: RawExampleList) -> Vec<ExampleInfo> {
+    let mut out: Vec<ExampleInfo> = raw
+        .examples
+        .into_iter()
+        .flat_map(|entry| {
+            let source = if entry.library.location == "platform" {
+                "core"
+            } else {
+                "library"
+            };
+            let library = entry.library.name;
+            entry.examples.into_iter().map(move |p| {
+                let path = PathBuf::from(p);
+                ExampleInfo {
+                    library: library.clone(),
+                    name: path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default(),
+                    path,
+                    source: source.into(),
+                }
+            })
+        })
+        .filter(|e| !e.name.is_empty())
+        .collect();
+    out.sort_by(|a, b| {
+        (a.source != "core")
+            .cmp(&(b.source != "core"))
+            .then_with(|| a.library.to_lowercase().cmp(&b.library.to_lowercase()))
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+    out
+}
+
+/// Veraltete Bibliotheken und Cores aus `arduino-cli outdated --json`.
+fn outdated_from(raw: RawOutdated) -> (Vec<OutdatedItem>, Vec<OutdatedItem>) {
+    let libs = raw
+        .libraries
+        .into_iter()
+        .filter_map(|i| {
+            let latest = i.release?.version;
+            if latest.is_empty() || version_cmp(&latest, &i.library.version).is_le() {
+                return None;
+            }
+            Some(OutdatedItem {
+                name: i.library.name,
+                installed: i.library.version,
+                latest,
+            })
+        })
+        .collect();
+    let cores = raw
+        .platforms
+        .into_iter()
+        .filter(|c| {
+            !c.installed_version.is_empty()
+                && version_cmp(&c.latest_version, &c.installed_version).is_gt()
+        })
+        .map(|c| OutdatedItem {
+            name: c.id,
+            installed: c.installed_version,
+            latest: c.latest_version,
+        })
+        .collect();
+    (libs, cores)
 }
 
 fn normalize(s: &str) -> String {
@@ -436,6 +581,52 @@ mod tests {
         assert_eq!(relevance("neopixel", "NeoPixel Painter"), 1);
         assert_eq!(relevance("neopixel", "Adafruit NeoPixel"), 2);
         assert_eq!(relevance("neopixel", "FastLED"), 3);
+    }
+
+    #[test]
+    fn index_age_reads_newest_index_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(index_age(tmp.path()).is_none());
+        std::fs::write(tmp.path().join("package_index.json"), "{}").unwrap();
+        assert!(index_age(tmp.path()).unwrap() < Duration::from_secs(60));
+    }
+
+    #[test]
+    fn examples_are_flattened_and_core_comes_first() {
+        let raw: RawExampleList = serde_json::from_str(r#"{"examples":[
+            {"library":{"name":"Zeta","location":"user"},"examples":["/l/Zeta/examples/B","/l/Zeta/examples/A"]},
+            {"library":{"name":"WiFi","location":"platform"},"examples":["/c/WiFi/examples/Scan"]}]}"#).unwrap();
+        let e = examples_from(raw);
+        let names: Vec<_> = e
+            .iter()
+            .map(|e| (e.source.as_str(), e.library.as_str(), e.name.as_str()))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                ("core", "WiFi", "Scan"),
+                ("library", "Zeta", "A"),
+                ("library", "Zeta", "B")
+            ]
+        );
+    }
+
+    #[test]
+    fn outdated_lists_only_newer_versions() {
+        let raw: RawOutdated = serde_json::from_str(r#"{
+            "libraries":[{"library":{"name":"A","version":"1.0.0"},"release":{"version":"1.2.0"}},
+                         {"library":{"name":"B","version":"2.0.0"},"release":{"version":"2.0.0"}}],
+            "platforms":[{"id":"esp32:esp32","installed_version":"3.0.0","latest_version":"3.3.1"}]}"#).unwrap();
+        let (libs, cores) = outdated_from(raw);
+        assert_eq!(
+            libs,
+            [OutdatedItem {
+                name: "A".into(),
+                installed: "1.0.0".into(),
+                latest: "1.2.0".into()
+            }]
+        );
+        assert_eq!(cores[0].latest, "3.3.1");
     }
 
     fn cli() -> Option<ArduinoCli> {

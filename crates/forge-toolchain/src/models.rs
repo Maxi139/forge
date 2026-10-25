@@ -65,6 +65,29 @@ pub struct LibrarySearchHit {
     pub installed: Option<String>,
 }
 
+/// Ein Beispielsketch aus einem Core oder einer Bibliothek.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExampleInfo {
+    /// Name der Bibliothek, zu der das Beispiel gehört.
+    pub library: String,
+    /// Name des Beispiels (Ordnername).
+    pub name: String,
+    /// Ordner des Beispiels.
+    pub path: std::path::PathBuf,
+    /// `core` für Bibliotheken, die der Core mitbringt, sonst `library`.
+    pub source: String,
+}
+
+/// Eine veraltete Bibliothek oder ein veralteter Core.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutdatedItem {
+    pub name: String,
+    pub installed: String,
+    pub latest: String,
+}
+
 /// Bis die Version `a` kleiner als `b` ist, vergleichen wir numerisch segmentweise.
 pub fn version_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     let key = |s: &str| -> Vec<u64> {
@@ -217,6 +240,27 @@ pub(crate) struct RawSearchLib {
     pub releases: BTreeMap<String, RawLib>,
     #[serde(default)]
     pub latest: Option<RawLib>,
+}
+
+#[derive(Deserialize, Default)]
+pub(crate) struct RawExampleList {
+    #[serde(default)]
+    pub examples: Vec<RawExampleEntry>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct RawExampleEntry {
+    pub library: RawLib,
+    #[serde(default)]
+    pub examples: Vec<String>,
+}
+
+#[derive(Deserialize, Default)]
+pub(crate) struct RawOutdated {
+    #[serde(default)]
+    pub libraries: Vec<RawInstalled>,
+    #[serde(default)]
+    pub platforms: Vec<RawCore>,
 }
 
 #[cfg(test)]
