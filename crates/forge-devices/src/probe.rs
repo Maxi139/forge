@@ -1,3 +1,4 @@
+use forge_core::esptool::EsptoolStyle;
 use regex::Regex;
 use std::io::Read;
 use std::path::Path;
@@ -36,15 +37,16 @@ pub fn parse_probe(output: &str) -> Option<ChipProbe> {
 
 /// Fragt den Chip über esptool. Das startet das Board neu. Nie aufrufen, solange der Monitor den Port hält.
 pub fn probe_chip(esptool: &Path, port: &str, timeout: Duration) -> Result<ChipProbe, ProbeError> {
+    let style = EsptoolStyle::detect(esptool);
     let mut child = Command::new(esptool)
         .args([
             "--port",
             port,
             "--before",
-            "default-reset",
+            &style.word("default-reset"),
             "--after",
-            "hard-reset",
-            "read-mac",
+            &style.word("hard-reset"),
+            &style.word("read-mac"),
         ])
         .env("LC_ALL", "en_US.UTF-8")
         .env("PYTHONIOENCODING", "utf-8")
@@ -95,6 +97,43 @@ mod tests {
                 mac: Some("7c:df:a1:12:34:56".into())
             })
         );
+    }
+
+    /// Ein Skript gibt sich als esptool 4 oder 5 aus und kennt nur die eigene Schreibweise.
+    #[test]
+    fn probe_uses_spelling_of_installed_version() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = std::env::temp_dir().join(format!("forge-probe-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        for (version, ok_cmd, ok_val, bad_cmd, bad_val) in [
+            (
+                "esptool.py v4.7.0",
+                "read_mac",
+                "default_reset",
+                "read-mac",
+                "default-reset",
+            ),
+            (
+                "esptool v5.3.1",
+                "read-mac",
+                "default-reset",
+                "read_mac",
+                "default_reset",
+            ),
+        ] {
+            let fake = tmp.join("esptool");
+            let script = format!(
+                "#!/bin/sh\ncase \"$1\" in version) echo '{version}'; exit 0;; esac\n\
+                 case \" $* \" in *' {bad_cmd} '*|*' {bad_val} '*) echo 'invalid choice'; exit 2;; esac\n\
+                 case \" $* \" in *' {ok_cmd} '*' {ok_val} '*|*' {ok_val} '*' {ok_cmd} '*) ;; *) echo 'fehlt'; exit 2;; esac\n\
+                 echo 'Chip type:          ESP32-S3 (QFN56)'\necho 'MAC:                7c:df:a1:12:34:56'\n"
+            );
+            std::fs::write(&fake, script).unwrap();
+            std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let probe = probe_chip(&fake, "/dev/cu.fake", Duration::from_secs(5)).unwrap();
+            assert_eq!(probe.chip, "ESP32-S3", "{version}");
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
