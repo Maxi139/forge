@@ -1,9 +1,10 @@
-import { Input, LibraryItem, Panel } from "@forge/ui";
+import { Button, Input, LibraryItem, Panel } from "@forge/ui";
 import { useEffect, useMemo, useState } from "react";
 import { t } from "../i18n/de";
 import { backend, type LibrarySearchHit } from "../lib/backend";
 import { useHardware } from "../lib/hardware";
 import { errorText } from "../lib/store";
+import "../hardware.css";
 
 export function LibraryView() {
   const installed = useHardware((s) => s.libraries);
@@ -12,6 +13,10 @@ export function LibraryView() {
   const install = useHardware((s) => s.installLibrary);
   const uninstall = useHardware((s) => s.uninstallLibrary);
   const upgrade = useHardware((s) => s.upgradeLibrary);
+  const outdated = useHardware((s) => s.outdated);
+  const refreshOutdated = useHardware((s) => s.refreshOutdated);
+  const upgradeAll = useHardware((s) => s.upgradeAllLibraries);
+  const installZip = useHardware((s) => s.installLibraryZip);
   const query = useHardware((s) => s.libraryQuery);
   const setQuery = (q: string) => useHardware.setState({ libraryQuery: q });
   const [hits, setHits] = useState<LibrarySearchHit[] | null>(null);
@@ -19,7 +24,8 @@ export function LibraryView() {
 
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+    void refreshOutdated();
+  }, [refresh, refreshOutdated]);
 
   // Suche mit kurzer Pause nach dem Tippen. Spätere Eingaben machen frühere Antworten ungültig.
   useEffect(() => {
@@ -50,6 +56,16 @@ export function LibraryView() {
       <div className="libs">
         <div className="libs-search">
           <Input icon="search" size="sm" placeholder={t.libraries.search} aria-label={t.libraries.search} value={query} onChange={(e) => setQuery(e.target.value)} />
+        </div>
+        <div className="libs-actions">
+          {outdated.length ? (
+            <Button size="sm" variant="primary" icon="refresh" disabled={Object.keys(busy).length > 0} onClick={() => void upgradeAll()}>
+              {t.updates.upgradeAll} ({outdated.length})
+            </Button>
+          ) : null}
+          <Button size="sm" variant="ghost" icon="plus" disabled={Object.keys(busy).length > 0} onClick={() => void installZip()} title={t.updates.zipHint}>
+            {t.updates.installZip}
+          </Button>
         </div>
         <div className="libs-scroll">
           {error ? <div className="sb-empty">{error}</div> : null}

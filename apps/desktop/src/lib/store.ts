@@ -41,6 +41,7 @@ export type DialogState =
   | { kind: "aiTask" }
   | { kind: "moveSecret"; file: string; line: number; from: number; to: number; value: string; name: string; mode: "call" | "decl" }
   | { kind: "toolchain" }
+  | { kind: "examples" }
   | { kind: "unsaved"; path: string; resolve(choice: "save" | "discard" | "cancel"): void }
   | { kind: "confirmDelete"; path: string; resolve(ok: boolean): void }
   | { kind: "confirm"; title: string; text: string; confirm: string; tone: "error" | "warning" | "glut"; resolve(ok: boolean): void }
@@ -182,6 +183,8 @@ interface Store {
   checkPackageNeeds(): Promise<void>;
   createProject(req: CreateProjectRequest): Promise<ProjectInfo>;
   createSketch(): Promise<void>;
+  /** Öffnet eine Kopie eines Beispiels aus Core oder Bibliothek als neuen Sketch. */
+  openExample(path: string): Promise<boolean>;
   /** Benennt das Projekt um. Gibt zurück, ob es geklappt hat. */
   renameProject(name: string): Promise<boolean>;
   /** Macht den geöffneten Sketch zum Projekt, mit forge.toml für Board, Secrets und KI-Prüfung. */
@@ -414,6 +417,24 @@ export const useStore = create<Store>((set, get) => ({
       set({ recents: await backend().recentProjects().catch(() => get().recents) });
     } catch (e) {
       get().toast({ kind: "error", title: t.errors.generic, message: errorText(e) });
+    }
+  },
+
+  async openExample(path) {
+    if (get().project && !(await get().closeProject())) return false;
+    try {
+      const project = await backend().openExample(path);
+      set({ project, tabs: [], active: null, buffers: {}, diagnostics: {} });
+      announceProjectSwitch();
+      await get().refreshTree();
+      await get().openFile(project.mainFile);
+      await backend().pushRecent(project).catch(() => undefined);
+      set({ recents: await backend().recentProjects().catch(() => get().recents) });
+      get().toast({ kind: "success", title: t.examples.opened(project.name), ttl: 4000 });
+      return true;
+    } catch (e) {
+      get().toast({ kind: "error", title: t.examples.failed, message: errorText(e) });
+      return false;
     }
   },
 

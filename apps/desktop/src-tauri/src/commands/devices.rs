@@ -1,8 +1,17 @@
 use super::build::{start_monitor, stop_monitor};
 use crate::state::{AppState, MonitorSpec};
 use forge_devices::{list_devices, probe_chip, ChipProbe, DeviceInfo};
+use forge_secrets::keychain::SecretStore;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
+
+/// USB-Geräte und Boards im WLAN in einer Liste.
+fn with_network(state: &AppState, mut usb: Vec<DeviceInfo>) -> Vec<DeviceInfo> {
+    if let Ok(g) = state.devices.network.lock() {
+        usb.extend(g.iter().cloned());
+    }
+    usb
+}
 
 #[tauri::command]
 pub fn devices_list(state: State<AppState>) -> Vec<DeviceInfo> {
@@ -10,7 +19,7 @@ pub fn devices_list(state: State<AppState>) -> Vec<DeviceInfo> {
     if let Ok(mut g) = state.devices.list.lock() {
         *g = fresh.clone();
     }
-    fresh
+    with_network(&state, fresh)
 }
 
 /// Startet die Beobachtung der USB-Anschlüsse. Ändert sich die Liste, kommt das Ereignis `devices:changed`.
@@ -30,11 +39,30 @@ pub fn start_device_watch(app: &AppHandle, state: &AppState) {
             changed
         };
         if changed {
-            let _ = handle.emit("devices:changed", fresh);
+            let state = tauri::Manager::state::<AppState>(&handle);
+            let _ = handle.emit("devices:changed", with_network(&state, fresh));
         }
     });
     if let Ok(mut g) = state.devices.watch.lock() {
         *g = Some(w);
+    }
+    // Boards im WLAN melden sich per mDNS an und ab.
+    let handle = app.clone();
+    let browser = forge_devices::browse_ota(move |found| {
+        let state = tauri::Manager::state::<AppState>(&handle);
+        if let Ok(mut g) = state.devices.network.lock() {
+            *g = found.iter().map(DeviceInfo::from_network).collect();
+        }
+        let usb = state
+            .devices
+            .list
+            .lock()
+            .map(|g| g.clone())
+            .unwrap_or_default();
+        let _ = handle.emit("devices:changed", with_network(&state, usb));
+    });
+    if let Ok(mut g) = state.devices.ota.lock() {
+        *g = browser;
     }
 }
 
@@ -99,4 +127,37 @@ pub fn monitor_write(state: State<AppState>, text: String, ending: String) -> Re
     };
     monitor.write(format!("{text}{suffix}").into_bytes());
     Ok(())
+}
+
+fn ota_account(device_id: &str) -> String {
+    format!("ota:{device_id}")
+}
+
+/// Ob für ein Netzwerkgerät ein OTA-Passwort im Schlüsselbund liegt.
+#[tauri::command]
+pub fn ota_password_status(device_id: String) -> bool {
+    super::secrets::store()
+        .get(&ota_account(&device_id))
+        .ok()
+        .flatten()
+        .is_some()
+}
+
+/// Speichert das OTA-Passwort eines Geräts im Schlüsselbund, ohne Wert löscht es den Eintrag.
+#[tauri::command]
+pub fn ota_password_set(device_id: String, password: Option<String>) -> Result<(), String> {
+    let store = super::secrets::store();
+    let account = ota_account(&device_id);
+    match password.filter(|p| !p.is_empty()) {
+        Some(p) => store.set(&account, &p),
+        None => store.delete(&account),
+    }
+    .map_err(|e| e.to_string())
+}
+
+pub(crate) fn ota_password(device_id: &str) -> Option<String> {
+    super::secrets::store()
+        .get(&ota_account(device_id))
+        .ok()
+        .flatten()
 }

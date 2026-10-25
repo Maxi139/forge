@@ -18,6 +18,9 @@ import type {
   BuildEvent,
   BuildOutcome,
   ChipProbe,
+  ExampleInfo,
+  MemoryDetail,
+  OutdatedItem,
   FbuildStatus,
   CheckOutput,
   CreateProjectRequest,
@@ -206,5 +209,18 @@ export function createTauriBackend(): Backend {
     lspReferences: (file, line, col) => call<LspLocation[]>("lsp_references", { file, line, col }),
     lspPrepareRename: (file, line, col) => call<LspRenameTarget | null>("lsp_prepare_rename", { file, line, col }),
     lspRename: (file, line, col, newName) => call<LspFileEdits[]>("lsp_rename", { file, line, col, newName }),
+    examples: (fqbn) => call<ExampleInfo[]>("examples_list", { fqbn: fqbn ?? null }),
+    openExample: (path) => call<ProjectInfo>("example_open", { path }).then(complete),
+    coreUpgrade: () => call<void>("core_upgrade"),
+    refreshIndexIfStale: () => call<boolean>("toolchain_refresh_index"),
+    outdatedLibraries: () => call<OutdatedItem[]>("libraries_outdated"),
+    async pickLibraryZip() {
+      const res = await openDialog({ multiple: false, title: "Bibliothek als ZIP installieren", filters: [{ name: "ZIP-Archiv", extensions: ["zip"] }] });
+      return typeof res === "string" ? res : null;
+    },
+    installLibraryZip: (path) => call<void>("library_install_zip", { path }),
+    memoryDetail: () => call<MemoryDetail>("build_memory_detail"),
+    otaPasswordSet: (deviceId) => call<boolean>("ota_password_status", { deviceId }),
+    setOtaPassword: (deviceId, password) => call<void>("ota_password_set", { deviceId, password }),
   };
 }

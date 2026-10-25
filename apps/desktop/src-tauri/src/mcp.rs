@@ -383,6 +383,7 @@ impl ForgeHost {
                 device_id: Some(device.id.clone()),
                 erase_all: args["eraseAll"].as_bool().unwrap_or(false),
                 force: args["force"].as_bool().unwrap_or(false),
+                target: None,
             },
         )
         .await?;

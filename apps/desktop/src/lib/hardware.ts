@@ -8,6 +8,8 @@ import type {
   BuildOutcome,
   DeviceInfo,
   LibraryInfo,
+  MemoryDetail,
+  OutdatedItem,
   MonitorLine,
   MonitorState,
   PartitionInfo,
@@ -64,9 +66,14 @@ function remember(project: string, id: string | null) {
 export function chooseDevice(devices: DeviceInfo[], remembered: string | null, current: string | null): string | null {
   if (current && devices.some((d) => d.id === current)) return current;
   if (remembered && devices.some((d) => d.id === remembered)) return remembered;
-  const candidates = devices.filter((d) => d.likelyEsp);
-  return candidates.length === 1 ? candidates[0].id : null;
+  // Ein Kabel schlägt WLAN: Boards im Netzwerk wählt Forge nur, wenn kein USB-Board da ist.
+  const usb = devices.filter((d) => d.likelyEsp && d.transport !== "network");
+  if (usb.length) return usb.length === 1 ? usb[0].id : null;
+  const net = devices.filter((d) => d.likelyEsp);
+  return net.length === 1 ? net[0].id : null;
 }
+
+export const isNetwork = (d: DeviceInfo | null | undefined) => d?.transport === "network";
 
 /** Liest Werte für den Plotter: `name:wert`-Paare oder durch Komma, Tab oder Leerzeichen getrennte Zahlen. */
 export function parsePlotLine(text: string): Array<[string, number]> {
@@ -106,6 +113,11 @@ interface Hardware {
   /** Suchbegriff der Bibliotheksansicht. Andere Teile der Oberfläche können ihn setzen. */
   libraryQuery: string;
   secrets: SecretStatus[];
+  /** Bibliotheken mit neuerer Version (`arduino-cli outdated`). */
+  outdated: OutdatedItem[];
+  coreUpgrading: boolean;
+  /** Abschnitte und größte Symbole des letzten Builds. */
+  memory: { state: "idle" | "loading" | "ready" | "error"; data: MemoryDetail | null; error: string | null };
 
   init(): Promise<void>;
   runSetup(): Promise<boolean>;
@@ -140,6 +152,12 @@ interface Hardware {
   installLibrary(name: string, version?: string): Promise<void>;
   uninstallLibrary(name: string): Promise<void>;
   upgradeLibrary(name: string): Promise<void>;
+
+  refreshOutdated(): Promise<void>;
+  upgradeAllLibraries(): Promise<void>;
+  installLibraryZip(): Promise<void>;
+  upgradeCore(): Promise<void>;
+  loadMemory(): Promise<void>;
 }
 
 let progressToast: number | null = null;
@@ -173,6 +191,9 @@ export const useHardware = create<Hardware>((set, get) => ({
   libraryBusy: {},
   libraryQuery: "",
   secrets: [],
+  outdated: [],
+  coreUpgrading: false,
+  memory: { state: "idle", data: null, error: null },
 
   async init() {
     if (initialized) return;
@@ -183,9 +204,18 @@ export const useHardware = create<Hardware>((set, get) => ({
     } catch (e) {
       set({ toolchain: { arduinoCli: null, esp32Core: null, esptool: false, error: errorText(e) } });
     }
+    // Paketliste im Hintergrund erneuern, wenn sie älter als 24 Stunden ist. Danach stimmen die Updates.
+    void (async () => {
+      try {
+        if (await b.refreshIndexIfStale()) set({ toolchain: await b.toolchainStatus() });
+      } catch {
+        /* Offline: es gilt die Liste von zuletzt. */
+      }
+      await get().refreshOutdated();
+    })();
 
     // Anzeigen des alten Projekts (Speicherzahlen, Monitor, Plotter) gelten nicht für das neue.
-    window.addEventListener("forge:project-switched", () => set({ lastBuild: null, build: null, monitorLines: [], plot: [] }));
+    window.addEventListener("forge:project-switched", () => set({ lastBuild: null, build: null, monitorLines: [], plot: [], memory: { state: "idle", data: null, error: null } }));
 
     // Die Abos laufen so lange wie die App.
     await Promise.all([
@@ -278,7 +308,7 @@ export const useHardware = create<Hardware>((set, get) => ({
   async identify(id, force = false) {
     const st = get();
     const device = st.devices.find((d) => d.id === id);
-    if (!device || !device.likelyEsp || st.identifying || st.activity !== "idle") return;
+    if (!device || !device.likelyEsp || isNetwork(device) || st.identifying || st.activity !== "idle") return;
     if (!force && st.identity[id]) return;
     const cached = force ? null : readChip(id);
     if (cached) {
@@ -357,7 +387,15 @@ export const useHardware = create<Hardware>((set, get) => ({
     progressToast = s.toast({ kind: "progress", title: t.hardware.flashStart(chip), message: "", progress: 0, onCancel: () => void get().cancel() });
     s.clearOutput();
     try {
-      const result = await backend().flash({ board, port: device.port, deviceId: device.id, eraseAll: opts?.eraseAll ?? false, force: opts?.force ?? false });
+      const net = isNetwork(device) && device.host ? device : null;
+      const result = await backend().flash({
+        board,
+        port: device.port,
+        deviceId: device.id,
+        eraseAll: opts?.eraseAll ?? false,
+        force: opts?.force ?? false,
+        target: net ? { kind: "network", host: net.host!, port: net.otaPort ?? 3232 } : undefined,
+      });
       endProgressToast();
       if (result.status === "secretsMissing") {
         set({ activity: "idle", build: null });
@@ -381,8 +419,8 @@ export const useHardware = create<Hardware>((set, get) => ({
       }
       s.toast({ kind: "success", title: t.hardware.flashDone, message: t.hardware.flashDoneText(formatBytes(result.flash.bytes), (result.flash.durationMs / 1000).toFixed(1).replace(".", ",")) });
       // Nach dem Flashen interessiert die Ausgabe des Boards.
-      s.setBottomTab("monitor");
-      if (!get().monitor.open) void get().startMonitor();
+      if (!isNetwork(device)) s.setBottomTab("monitor");
+      if (!isNetwork(device) && !get().monitor.open) void get().startMonitor();
     } catch (e) {
       failBuild(e, true);
     }
@@ -394,7 +432,8 @@ export const useHardware = create<Hardware>((set, get) => ({
 
   async startMonitor() {
     const device = get().selectedDevice();
-    if (!device) return;
+    // Boards im WLAN haben keinen seriellen Port.
+    if (!device || isNetwork(device)) return;
     set((s) => ({ monitor: { ...s.monitor, open: true, userClosed: false } }));
     await backend().monitorStart(device.id, device.port, get().monitor.baud).catch((e) => useStore.getState().toast({ kind: "error", title: t.errors.generic, message: errorText(e) }));
   },
@@ -468,6 +507,55 @@ export const useHardware = create<Hardware>((set, get) => ({
   },
   async upgradeLibrary(name) {
     await libraryOp(name, () => backend().upgradeLibrary(name), t.libraries.installed_ok(name));
+    await get().refreshOutdated();
+  },
+
+  async refreshOutdated() {
+    try {
+      set({ outdated: await backend().outdatedLibraries() });
+    } catch {
+      set({ outdated: [] });
+    }
+  },
+
+  async upgradeAllLibraries() {
+    const names = get().outdated.map((o) => o.name);
+    for (const name of names) await libraryOp(name, () => backend().upgradeLibrary(name), t.libraries.installed_ok(name));
+    await get().refreshOutdated();
+  },
+
+  async installLibraryZip() {
+    const path = await backend().pickLibraryZip();
+    if (!path) return;
+    const name = baseName(path).replace(/\.zip$/i, "");
+    await libraryOp(name, () => backend().installLibraryZip(path), t.libraries.installed_ok(name));
+    await get().refreshOutdated();
+  },
+
+  async upgradeCore() {
+    if (get().coreUpgrading) return;
+    set({ coreUpgrading: true, setup: { running: true, line: "", fraction: null } });
+    const off = await backend().onToolchainProgress((p) => set((s) => ({ setup: { running: true, line: p.line, fraction: p.fraction ?? s.setup.fraction } })));
+    try {
+      await backend().coreUpgrade();
+      const status = await backend().toolchainStatus();
+      set({ toolchain: status });
+      useStore.getState().toast({ kind: "success", title: t.updates.coreUpgraded(status.esp32Core ?? "") });
+    } catch (e) {
+      useStore.getState().toast({ kind: "error", title: t.updates.coreFailed, message: errorText(e) });
+    } finally {
+      off();
+      set({ coreUpgrading: false, setup: { running: false, line: "", fraction: null } });
+    }
+  },
+
+  async loadMemory() {
+    set((s) => ({ memory: { ...s.memory, state: "loading", error: null } }));
+    try {
+      set({ memory: { state: "ready", data: await backend().memoryDetail(), error: null } });
+    } catch (e) {
+      set({ memory: { state: "error", data: null, error: errorText(e) } });
+    }
   },
 }));
 

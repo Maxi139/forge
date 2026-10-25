@@ -23,6 +23,17 @@ describe("chooseDevice", () => {
   });
 });
 
+describe("chooseDevice mit Boards im WLAN", () => {
+  const net = (id: string): DeviceInfo => ({ ...dev(id, true), transport: "network", bridge: "network", host: "192.168.1.5", otaPort: 3232 });
+  it("bevorzugt das USB-Board vor dem WLAN-Board", () => {
+    expect(chooseDevice([dev("usb", true), net("wlan")], null, null)).toBe("usb");
+  });
+  it("nimmt das einzige WLAN-Board, wenn kein Kabel steckt", () => {
+    expect(chooseDevice([net("wlan")], null, null)).toBe("wlan");
+    expect(chooseDevice([net("a"), net("b")], null, null)).toBeNull();
+  });
+});
+
 describe("parsePlotLine", () => {
   it("liest name:wert-Paare", () => {
     expect(parsePlotLine("raw:2048 volts:1.65")).toEqual([["raw", 2048], ["volts", 1.65]]);

@@ -6,6 +6,7 @@ import { FALLBACK_BOARDS } from "../lib/boards";
 import { baseName, errorText, isCancelled, useStore } from "../lib/store";
 import { AiTaskDialog } from "./AiTaskDialog";
 import { BoardPicker } from "./BoardPicker";
+import { ExamplesDialog } from "./ExamplesDialog";
 import { SecretsDialog, MoveSecretDialog } from "./SecretsDialog";
 import { SettingsDialog } from "./SettingsDialog";
 import { ToolchainDialog } from "./ToolchainDialog";
@@ -20,6 +21,8 @@ export function Dialogs() {
       return <BoardPicker />;
     case "toolchain":
       return <ToolchainDialog />;
+    case "examples":
+      return <ExamplesDialog />;
     case "settings":
       return <SettingsDialog />;
     case "secrets":

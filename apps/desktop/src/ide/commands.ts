@@ -66,6 +66,8 @@ export function buildCommands(): RunnableCommand[] {
     },
     hasProject && !!s.active && { id: "editor.rename", group: g.file, label: t.commands.renameSymbol, icon: "file-code", shortcut: ["F2"], run: () => void renameSymbol() },
     hasProject && !!s.active && { id: "editor.references", group: g.file, label: t.commands.findReferences, icon: "search", shortcut: ["⇧", "F12"], run: () => void findReferences() },
+    { id: "example.open", group: g.file, label: t.examples.command, icon: "file-code", run: () => s.setDialog({ kind: "examples" }) },
+    { id: "library.installZip", group: g.view, label: t.updates.installZip, icon: "library", run: () => void useHardware.getState().installLibraryZip() },
   ];
   return list.filter((c): c is RunnableCommand => c !== false);
 }

@@ -40,7 +40,13 @@ pub fn base_env() -> Vec<(OsString, OsString)> {
     ]
 }
 
-fn command(program: &Path, args: &[OsString], cwd: Option<&Path>, locale: &str) -> Command {
+fn command(
+    program: &Path,
+    args: &[OsString],
+    cwd: Option<&Path>,
+    locale: &str,
+    extra_env: &[(&str, &str)],
+) -> Command {
     let mut cmd = Command::new(program);
     cmd.args(args)
         .stdin(Stdio::null())
@@ -51,6 +57,9 @@ fn command(program: &Path, args: &[OsString], cwd: Option<&Path>, locale: &str) 
         cmd.env(k, v);
     }
     cmd.env("LC_ALL", locale);
+    for (k, v) in extra_env {
+        cmd.env(k, v);
+    }
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
     }
@@ -72,7 +81,7 @@ pub async fn capture(
     locale: &str,
     timeout: Option<Duration>,
 ) -> Result<Captured> {
-    let child = command(program, args, cwd, locale)
+    let child = command(program, args, cwd, locale, &[])
         .spawn()
         .map_err(|source| Error::Spawn {
             tool: tool_name(program),
@@ -128,9 +137,22 @@ pub async fn stream(
     cwd: Option<&Path>,
     locale: &str,
     cancel: &CancellationToken,
+    on_line: impl FnMut(Stream, &str),
+) -> Result<Option<i32>> {
+    stream_with_env(program, args, cwd, locale, &[], cancel, on_line).await
+}
+
+/// Wie `stream`, mit zusätzlichen Umgebungsvariablen nur für diesen Aufruf.
+pub async fn stream_with_env(
+    program: &Path,
+    args: &[OsString],
+    cwd: Option<&Path>,
+    locale: &str,
+    extra_env: &[(&str, &str)],
+    cancel: &CancellationToken,
     mut on_line: impl FnMut(Stream, &str),
 ) -> Result<Option<i32>> {
-    let mut child = command(program, args, cwd, locale)
+    let mut child = command(program, args, cwd, locale, extra_env)
         .spawn()
         .map_err(|source| Error::Spawn {
             tool: tool_name(program),

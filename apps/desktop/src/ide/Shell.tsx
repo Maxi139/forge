@@ -165,6 +165,8 @@ export function Shell() {
   } as CSSProperties;
 
   const activityValue = layout.sidebarOpen ? sidebarView : undefined;
+  const outdatedCount = useHardware((s) => s.outdated.length);
+  const activityItems = useMemo(() => ACTIVITY.map((i) => (i.id === "library" && outdatedCount > 0 ? { ...i, badge: outdatedCount } : i)), [outdatedCount]);
 
   const onActivity = (id: string) => {
     if (id === "files" || id === "search" || id === "library") setSidebarView(id);
@@ -208,7 +210,7 @@ export function Shell() {
       <div className="ide-main">
         <div className={`ide-side${layout.sidebarOpen ? "" : " is-collapsed"}`}>
           <div className="fg-sidebar">
-            <ActivityBar items={ACTIVITY} bottom={[{ id: "settings", icon: "settings", label: t.sidebar.settings }]} value={activityValue} onChange={(id) => (id === "settings" ? setDialog({ kind: "settings" }) : onActivity(id))} />
+            <ActivityBar items={activityItems} bottom={[{ id: "settings", icon: "settings", label: t.sidebar.settings }]} value={activityValue} onChange={(id) => (id === "settings" ? setDialog({ kind: "settings" }) : onActivity(id))} />
             {layout.sidebarOpen ? (
               sidebarView === "library" ? (
                 <ErrorBoundary region><LibraryView /></ErrorBoundary>

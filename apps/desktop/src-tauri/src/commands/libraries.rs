@@ -1,6 +1,6 @@
 use crate::state::{AppState, Jobs};
 use forge_project::{ForgeToml, CONFIG_FILE};
-use forge_toolchain::models::{LibraryInfo, LibrarySearchHit};
+use forge_toolchain::models::{LibraryInfo, LibrarySearchHit, OutdatedItem};
 use forge_toolchain::process::Stream;
 use regex::Regex;
 use serde::Serialize;
@@ -39,6 +39,8 @@ pub(crate) enum Op {
     Install(Option<String>),
     Uninstall,
     Upgrade,
+    /// Installation aus einer ZIP-Datei; `name` ist dann der Dateiname ohne Endung.
+    InstallZip(std::path::PathBuf),
 }
 
 pub(crate) async fn run(
@@ -71,6 +73,7 @@ pub(crate) async fn run(
         }
         Op::Uninstall => cli.uninstall_library(&name, &cancel, &mut sink).await,
         Op::Upgrade => cli.upgrade_library(&name, &cancel, &mut sink).await,
+        Op::InstallZip(zip) => cli.install_library_zip(zip, &cancel, &mut sink).await,
     }
     .map_err(|e| e.to_string())?;
     state.toolchain.invalidate();
@@ -131,4 +134,29 @@ pub async fn library_upgrade(
     name: String,
 ) -> Result<(), String> {
     run(&app, &state, name, Op::Upgrade).await
+}
+
+/// Bibliotheken, für die es eine neuere Version gibt.
+#[tauri::command]
+pub async fn libraries_outdated(state: State<'_, AppState>) -> Result<Vec<OutdatedItem>, String> {
+    state
+        .toolchain
+        .cli()?
+        .outdated_libraries()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Installiert eine Bibliothek aus einer ZIP-Datei.
+#[tauri::command]
+pub async fn library_install_zip(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    path: std::path::PathBuf,
+) -> Result<(), String> {
+    let name = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    run(&app, &state, name, Op::InstallZip(path)).await
 }

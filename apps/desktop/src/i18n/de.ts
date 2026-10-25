@@ -480,6 +480,60 @@ export const de = {
     replaceFailed: "Ersetzen hat nicht geklappt",
     referencesFor: "Verwendungen",
   },
+
+  examples: {
+    title: "Beispiel öffnen",
+    command: "Beispiel öffnen …",
+    search: "Beispiele suchen",
+    core: "ESP32-Core",
+    libraries: "Bibliotheken",
+    loading: "Lade Beispiele …",
+    none: "Keine Beispiele gefunden. Richte zuerst die ESP32-Unterstützung ein.",
+    noMatch: (q: string) => `Nichts gefunden für „${q}“.`,
+    hint: "Forge öffnet eine Kopie als neuen Sketch. Das Original bleibt unverändert.",
+    opened: (name: string) => `${name} geöffnet`,
+    failed: "Das Beispiel ließ sich nicht öffnen",
+    loadFailed: "Die Beispiele ließen sich nicht laden",
+    welcome: "Beispiel öffnen",
+  },
+
+  updates: {
+    title: "Toolchain",
+    core: "ESP32-Core",
+    coreCurrent: (v: string) => `Version ${v}, aktuell`,
+    coreOutdated: (installed: string, latest: string) => `Version ${installed} installiert, ${latest} verfügbar`,
+    coreMissing: "Noch nicht eingerichtet",
+    coreUpgrade: "Aktualisieren",
+    coreUpgrading: "Aktualisiere …",
+    coreUpgraded: (v: string) => (v ? `ESP32-Core ${v} installiert` : "ESP32-Core aktualisiert"),
+    coreFailed: "Der Core ließ sich nicht aktualisieren",
+    setup: "Einrichten",
+    upgradeAll: "Alle aktualisieren",
+    outdated: (n: number) => (n === 1 ? "1 Aktualisierung verfügbar" : `${n} Aktualisierungen verfügbar`),
+    installZip: "ZIP-Datei installieren …",
+    zipHint: "Nur für Bibliotheken, denen du vertraust. Sie werden ohne Prüfung des Bibliotheksverwalters installiert.",
+  },
+
+  ota: {
+    network: "WLAN",
+    host: "Adresse",
+    password: "OTA-Passwort",
+    passwordSet: "Passwort gespeichert",
+    passwordNeeded: "Passwort nötig",
+    passwordSave: "Speichern",
+    passwordRemove: "Entfernen",
+    passwordHint: "Liegt im Schlüsselbund. Das Board verlangt es beim Übertragen.",
+    onlyApp: "Per WLAN wird nur das Programm übertragen. Secrets und „Flash löschen“ gehen nur per USB.",
+    noMonitor: "Der serielle Monitor braucht ein USB-Kabel.",
+  },
+
+  memoryDetail: {
+    show: "Aufschlüsselung",
+    hide: "Ausblenden",
+    loading: "Werte Build aus …",
+    symbols: "Größte Symbole",
+    failed: "Die Aufschlüsselung ist nicht verfügbar",
+  },
 };
 
 export type Strings = typeof de;

@@ -1,8 +1,11 @@
-import { Badge, BuildProgress, Button, Icon, MemoryMeter, PartitionMap, Panel, Pinout, StatusDot } from "@forge/ui";
-import { useEffect, useMemo } from "react";
+import { Badge, BuildProgress, Button, Icon, Input, MemoryMeter, PartitionMap, Panel, Pinout, StatusDot } from "@forge/ui";
+import { useEffect, useMemo, useState } from "react";
 import { t } from "../i18n/de";
 import { boardName, chipOf } from "../lib/boards";
-import { useHardware } from "../lib/hardware";
+import { formatBytes, isNetwork, useHardware } from "../lib/hardware";
+import { backend } from "../lib/backend";
+import { errorText } from "../lib/store";
+import "../hardware.css";
 import { usedPins } from "../lib/pins";
 import { baseName, useStore } from "../lib/store";
 import { BUILD_STAGES } from "@forge/ui";
@@ -58,7 +61,19 @@ export function DevicePanel() {
         <StatusDot state={state} label={false} />
       </div>
 
-      {device ? (
+      {device && isNetwork(device) ? (
+        <>
+          <div className="kv">
+            <span>{t.ota.host}</span>
+            <span className="fg-mono" title={device.host ?? undefined}>
+              {device.host}
+            </span>
+            <span>{t.device.port}</span>
+            <span className="fg-mono">{device.otaPort}</span>
+          </div>
+          <OtaBox deviceId={device.id} auth={!!device.auth} />
+        </>
+      ) : device ? (
         <div className="kv">
           <span>{t.device.chip}</span>
           <span className="fg-mono">{identity?.chip ?? (device.mac ? chip : device.label)}</span>
@@ -98,6 +113,7 @@ export function DevicePanel() {
         <>
           <div className="sec">{t.device.memory}</div>
           <MemoryMeter items={last.sizes.map((s) => ({ label: s.label, used: s.used, total: s.total }))} />
+          <MemoryDetailView hash={last.hash} />
           {last.partitions.length ? (
             <>
               <div className="sec">{t.device.partitions}</div>
@@ -137,7 +153,7 @@ export function DevicePanel() {
         </div>
       </div>
 
-      {device ? (
+      {device && !isNetwork(device) ? (
         <div className="device-actions">
           <Button size="sm" variant="ghost" icon="refresh" onClick={() => void useHardware.getState().identify(device.id, true)} disabled={activity !== "idle" || identifying}>
             {t.device.identifyAgain}
@@ -151,5 +167,116 @@ export function DevicePanel() {
         </div>
       ) : null}
     </Panel>
+  );
+}
+
+/** OTA-Passwort eines Boards im WLAN. Es liegt im Schlüsselbund, nie in der Oberfläche. */
+function OtaBox({ deviceId, auth }: { deviceId: string; auth: boolean }) {
+  const [saved, setSaved] = useState(false);
+  const [value, setValue] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setValue("");
+    backend()
+      .otaPasswordSet(deviceId)
+      .then((v) => alive && setSaved(v))
+      .catch(() => alive && setSaved(false));
+    return () => {
+      alive = false;
+    };
+  }, [deviceId]);
+
+  const store = async (password: string | null) => {
+    try {
+      await backend().setOtaPassword(deviceId, password);
+      setSaved(!!password);
+      setValue("");
+      setError(null);
+    } catch (e) {
+      setError(errorText(e));
+    }
+  };
+
+  return (
+    <div className="ota-box">
+      {auth || saved ? (
+        <>
+          <div className="secret-chip">
+            <span>{t.ota.password}</span>
+            {saved ? <Badge tone="success" icon="check">{t.ota.passwordSet}</Badge> : <Badge tone="warning" icon="warning">{t.ota.passwordNeeded}</Badge>}
+          </div>
+          <Input size="sm" type="password" autoComplete="off" aria-label={t.ota.password} placeholder={t.ota.password} value={value} onChange={(e) => setValue(e.target.value)} error={error ?? undefined} hint={t.ota.passwordHint} />
+          <div className="settings-actions">
+            <Button size="sm" variant="secondary" disabled={!value} onClick={() => void store(value)}>
+              {t.ota.passwordSave}
+            </Button>
+            {saved ? (
+              <Button size="sm" variant="ghost" onClick={() => void store(null)}>
+                {t.ota.passwordRemove}
+              </Button>
+            ) : null}
+          </div>
+        </>
+      ) : null}
+      <div className="settings-note">{t.ota.onlyApp}</div>
+    </div>
+  );
+}
+
+/** Abschnitte und größte Symbole des letzten Builds. Wird erst auf Wunsch geladen. */
+function MemoryDetailView({ hash }: { hash: string }) {
+  const memory = useHardware((s) => s.memory);
+  const load = useHardware((s) => s.loadMemory);
+  const [open, setOpen] = useState(false);
+
+  // Ein neuer Build macht die geladenen Werte ungültig.
+  useEffect(() => {
+    useHardware.setState({ memory: { state: "idle", data: null, error: null } });
+  }, [hash]);
+  useEffect(() => {
+    if (open && memory.state === "idle") void load();
+  }, [open, memory.state, load]);
+
+  return (
+    <div className="mem-detail">
+      <div>
+        <Button size="sm" variant="ghost" icon="memory" onClick={() => setOpen((o) => !o)}>
+          {open ? t.memoryDetail.hide : t.memoryDetail.show}
+        </Button>
+      </div>
+      {open && memory.state === "loading" ? <div className="settings-note">{t.memoryDetail.loading}</div> : null}
+      {open && memory.state === "error" ? (
+        <div className="settings-note">
+          {t.memoryDetail.failed}: {memory.error}
+        </div>
+      ) : null}
+      {open && memory.state === "ready" && memory.data ? (
+        <>
+          {memory.data.groups.map((g) => (
+            <div key={g.label} className="mem-group">
+              <div className="mem-row is-total">
+                <span>{g.label}</span>
+                <span className="fg-mono">{formatBytes(g.size)}</span>
+              </div>
+              {g.sections.map(([name, size]) => (
+                <div key={name} className="mem-row is-section">
+                  <span className="fg-mono">{name}</span>
+                  <span className="fg-mono">{formatBytes(size)}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+          <div className="sec">{t.memoryDetail.symbols}</div>
+          {memory.data.symbols.map((s) => (
+            <div key={s.name} className="mem-sym" title={`${s.name} (${s.kind})`}>
+              <span className="fg-mono">{s.name}</span>
+              <span className="size fg-mono">{formatBytes(s.size)}</span>
+            </div>
+          ))}
+        </>
+      ) : null}
+    </div>
   );
 }

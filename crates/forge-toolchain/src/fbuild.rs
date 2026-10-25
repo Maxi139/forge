@@ -17,6 +17,10 @@ pub struct FbuildBoard {
     pub env: &'static str,
     pub pio_board: &'static str,
     pub bootloader_offset: u64,
+    /// Flash-Eigenschaften des Boards (`build.flash_mode`, `build.flash_freq`, `upload.flash_size`).
+    pub flash_mode: &'static str,
+    pub flash_freq: &'static str,
+    pub flash_size: &'static str,
 }
 
 /// Nur Boards, die wir am echten Gerät geflasht haben. Weitere kommen dazu, sobald sie geprüft sind.
@@ -26,6 +30,9 @@ const VERIFIED: &[(&str, FbuildBoard)] = &[(
         env: "esp32dev",
         pio_board: "esp32dev",
         bootloader_offset: 0x1000,
+        flash_mode: "dio",
+        flash_freq: "40m",
+        flash_size: "4MB",
     },
 )];
 
@@ -326,10 +333,9 @@ pub fn parse_partition_table(bin: &[u8]) -> Vec<PartitionInfo> {
 }
 
 fn flash_args(board: &FbuildBoard) -> String {
-    // Die sicheren Werte: dio und 40 MHz laufen auf jedem Modul, 4 MB sind der Standard des Boards.
     format!(
-        "--flash-mode dio --flash-freq 40m --flash-size 4MB\n{:#x} bootloader.bin\n0x8000 partitions.bin\n0xe000 boot_app0.bin\n0x10000 firmware.bin\n",
-        board.bootloader_offset
+        "--flash-mode {} --flash-freq {} --flash-size {}\n{:#x} bootloader.bin\n0x8000 partitions.bin\n0xe000 boot_app0.bin\n0x10000 firmware.bin\n",
+        board.flash_mode, board.flash_freq, board.flash_size, board.bootloader_offset
     )
 }
 
@@ -480,6 +486,17 @@ mod tests {
         assert_eq!(board_for("esp32:esp32:esp32").unwrap().env, "esp32dev");
         assert!(board_for("esp32:esp32:esp32:FlashSize=16M").is_none());
         assert!(board_for("esp32:esp32:esp32s3").is_none());
+    }
+
+    #[test]
+    fn flash_args_come_from_board_properties() {
+        let mut b = board_for("esp32:esp32:esp32").unwrap();
+        b.flash_freq = "80m";
+        b.flash_size = "16MB";
+        let a = flash_args(&b);
+        assert!(a.starts_with(
+            "--flash-mode dio --flash-freq 80m --flash-size 16MB\n0x1000 bootloader.bin"
+        ));
     }
 
     #[test]

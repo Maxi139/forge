@@ -31,6 +31,9 @@ export function Welcome() {
           <Button icon="folder-open" onClick={() => void pickAndOpenFile()}>
             {t.welcome.openFolder}
           </Button>
+          <Button icon="library" onClick={() => setDialog({ kind: "examples" })}>
+            {t.examples.welcome}
+          </Button>
         </>
       }
       hints={[

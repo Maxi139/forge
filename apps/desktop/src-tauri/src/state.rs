@@ -226,6 +226,9 @@ pub struct DeviceHub {
     pub monitor: Mutex<Option<(Monitor, MonitorSpec)>>,
     /// Die letzten Zeilen des Monitors, auch für MCP.
     pub log: Mutex<VecDeque<String>>,
+    /// Boards im WLAN, die OTA anbieten.
+    pub network: Mutex<Vec<DeviceInfo>>,
+    pub ota: Mutex<Option<forge_devices::OtaBrowser>>,
 }
 
 /// Laufende Aufträge, die sich abbrechen lassen.

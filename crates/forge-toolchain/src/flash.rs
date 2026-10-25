@@ -5,6 +5,7 @@
 use crate::build::BuildEvent;
 use crate::process::{os, stream};
 use crate::{CancellationToken, Error, Result};
+use forge_core::esptool::EsptoolStyle;
 use regex::Regex;
 use serde::Serialize;
 use std::ffi::OsString;
@@ -129,6 +130,11 @@ pub async fn flash(
     }
     let total_regions = regions.len().max(1);
 
+    // esptool 4 und 5 unterscheiden sich in der Schreibweise, daher einmal die Version erfragen.
+    let tool = req.esptool.clone();
+    let style = tokio::task::spawn_blocking(move || EsptoolStyle::detect(&tool))
+        .await
+        .unwrap_or_default();
     let mut base: Vec<OsString> = os(&[
         "--chip",
         &req.chip,
@@ -137,9 +143,9 @@ pub async fn flash(
         "--baud",
         &req.baud.to_string(),
         "--before",
-        "default-reset",
+        &style.word("default-reset"),
         "--after",
-        "hard-reset",
+        &style.word("hard-reset"),
     ]);
     let mut lines: Vec<String> = Vec::new();
     let (mut chip, mut mac, mut bytes) = (None, None, 0u64);
@@ -163,7 +169,7 @@ pub async fn flash(
     // Optional: alles löschen. Das ist ein eigener Lauf, damit die Stufe „Löschen“ echt ist.
     if req.erase_all {
         let mut args = base.clone();
-        args.push("erase-flash".into());
+        args.push(style.word("erase-flash").into());
         let code = stream(
             &req.esptool,
             &args,
@@ -206,9 +212,15 @@ pub async fn flash(
     if regions.is_empty() {
         return Err(Error::Failed("Es gibt nichts zu schreiben.".into()));
     }
-    base.push("write-flash".into());
+    base.push(style.word("write-flash").into());
     base.push("-z".into());
-    base.extend(fa.options.iter().map(OsString::from));
+    base.extend(fa.options.iter().map(|o| {
+        if o.starts_with("--") {
+            OsString::from(style.word(o))
+        } else {
+            OsString::from(o)
+        }
+    }));
     for (off, file) in &regions {
         base.push(off.into());
         base.push(file.into());
@@ -359,6 +371,28 @@ mod tests {
     /// Ein Skript, das esptool nachahmt, prüft Fortschritt und Auswertung ohne Hardware.
     #[tokio::test]
     async fn progress_is_derived_from_esptool_output() {
+        run_fake(
+            "esptool v5.3.1",
+            "write-flash",
+            "write_flash",
+            "--flash_mode",
+        )
+        .await;
+    }
+
+    /// esptool 4 kennt nur die Schreibweise mit Unterstrichen, das Skript lehnt die andere ab.
+    #[tokio::test]
+    async fn esptool_v4_gets_underscore_spelling() {
+        run_fake(
+            "esptool.py v4.7.0",
+            "write_flash",
+            "write-flash",
+            "--flash-mode",
+        )
+        .await;
+    }
+
+    async fn run_fake(version: &str, accepts: &str, rejects: &str, bad_opt: &str) {
         use std::os::unix::fs::PermissionsExt;
         let tmp = tempfile::tempdir().unwrap();
         std::fs::write(
@@ -369,7 +403,7 @@ mod tests {
         let fake = tmp.path().join("esptool");
         std::fs::write(
             &fake,
-            "#!/bin/sh\necho 'esptool v5.3.1'\necho 'Connecting....'\necho 'Chip type:          ESP32-S3 (QFN56) (revision v0.2)'\necho 'MAC:                7c:df:a1:12:34:56'\nfor r in 1 2; do\n printf 'Writing at 0x00000000 [==>    ]  50.0%% 10/20 bytes...\\r'\n printf 'Writing at 0x00000000 [=====>] 100.0%% 20/20 bytes...\\n'\n echo 'Wrote 20 bytes (15 compressed) at 0x00000000 in 0.1 seconds'\n echo 'Hash of data verified.'\ndone\necho 'Hard resetting via RTS pin...'\n",
+            format!("#!/bin/sh\ncase \"$1\" in version) echo '{version}'; exit 0;; esac\nfor a in \"$@\"; do\n if [ \"$a\" = '{rejects}' ]; then echo \"A fatal error occurred: invalid choice $a\"; exit 2; fi\n if [ \"$a\" = '{bad_opt}' ]; then echo 'A fatal error occurred: falsche Option'; exit 2; fi\ndone\ncase \" $* \" in *' {accepts} '*) ;; *) echo 'A fatal error occurred: Befehl fehlt'; exit 2;; esac\necho 'Connecting....'\necho 'Chip type:          ESP32-S3 (QFN56) (revision v0.2)'\necho 'MAC:                7c:df:a1:12:34:56'\nfor r in 1 2; do\n printf 'Writing at 0x00000000 [==>    ]  50.0%% 10/20 bytes...\\r'\n printf 'Writing at 0x00000000 [=====>] 100.0%% 20/20 bytes...\\n'\n echo 'Wrote 20 bytes (15 compressed) at 0x00000000 in 0.1 seconds'\n echo 'Hash of data verified.'\ndone\necho 'Hard resetting via RTS pin...'\n"),
         )
         .unwrap();
         std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();

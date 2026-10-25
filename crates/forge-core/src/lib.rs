@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod esptool;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {

@@ -6,8 +6,8 @@ mod store;
 mod watch;
 
 use commands::{
-    ai, boardcfg, build, devices, files, libraries, lsp, package, project, recents, search,
-    secrets, toolchain,
+    ai, boardcfg, build, devices, examples, files, libraries, lsp, package, project, recents,
+    search, secrets, toolchain,
 };
 use tauri::{Emitter, Manager};
 
@@ -122,6 +122,15 @@ pub fn run() {
             lsp::lsp_references,
             lsp::lsp_prepare_rename,
             lsp::lsp_rename,
+            examples::examples_list,
+            examples::example_open,
+            toolchain::core_upgrade,
+            toolchain::toolchain_refresh_index,
+            libraries::libraries_outdated,
+            libraries::library_install_zip,
+            build::build_memory_detail,
+            devices::ota_password_status,
+            devices::ota_password_set,
         ])
         .build(tauri::generate_context!())
         .expect("Forge konnte nicht gestartet werden")

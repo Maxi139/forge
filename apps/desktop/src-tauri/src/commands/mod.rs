@@ -2,6 +2,7 @@ pub mod ai;
 pub mod boardcfg;
 pub mod build;
 pub mod devices;
+pub mod examples;
 pub mod files;
 pub mod libraries;
 pub mod lsp;
