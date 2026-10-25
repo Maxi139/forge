@@ -122,11 +122,66 @@ pub fn monitor_write(state: State<AppState>, text: String, ending: String) -> Re
     let (monitor, _) = g.as_ref().ok_or("Der Monitor ist nicht verbunden.")?;
     let suffix = match ending.as_str() {
         "none" => "",
+        "cr" => "\r",
         "nlcr" => "\r\n",
         _ => "\n",
     };
     monitor.write(format!("{text}{suffix}").into_bytes());
     Ok(())
+}
+
+/// Startet das Board über DTR/RTS neu, ohne den Monitor zu schließen.
+#[tauri::command]
+pub fn monitor_reset(state: State<AppState>) -> Result<(), String> {
+    let g = state
+        .devices
+        .monitor
+        .lock()
+        .map_err(|_| "Zustand gesperrt".to_string())?;
+    let (monitor, _) = g.as_ref().ok_or("Der Monitor ist nicht verbunden.")?;
+    monitor.reset();
+    Ok(())
+}
+
+/// Ändert die Baudrate bei offenem Port. Nach einem Flash gilt die neue Rate weiter.
+#[tauri::command]
+pub fn monitor_set_baud(state: State<AppState>, baud: u32) -> Result<(), String> {
+    if !(300..=4_000_000).contains(&baud) {
+        return Err("Die Baudrate muss zwischen 300 und 4000000 liegen.".into());
+    }
+    let mut g = state
+        .devices
+        .monitor
+        .lock()
+        .map_err(|_| "Zustand gesperrt".to_string())?;
+    let (monitor, spec) = g.as_mut().ok_or("Der Monitor ist nicht verbunden.")?;
+    spec.baud = baud;
+    monitor.set_baud(baud);
+    Ok(())
+}
+
+/// Löst die Adressen einer Monitor-Zeile (`Backtrace:`, `PC :`) mit `addr2line` und der ELF des letzten Builds auf.
+#[tauri::command]
+pub async fn backtrace_decode(
+    state: State<'_, AppState>,
+    text: String,
+) -> Result<Vec<forge_toolchain::backtrace::Frame>, String> {
+    let addrs = forge_toolchain::backtrace::parse_addresses(&text);
+    if addrs.is_empty() {
+        return Err("In dieser Zeile stehen keine Adressen.".into());
+    }
+    let dir = state
+        .last_build
+        .lock()
+        .map_err(|_| "Zustand gesperrt".to_string())?
+        .as_ref()
+        .map(|b| b.build_dir.clone())
+        .ok_or(
+            "Es gibt noch keinen Build. Kompiliere zuerst, damit die ELF-Datei zum Board passt.",
+        )?;
+    forge_toolchain::backtrace::decode(&dir, &addrs)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 fn ota_account(device_id: &str) -> String {
@@ -160,4 +215,10 @@ pub(crate) fn ota_password(device_id: &str) -> Option<String> {
         .get(&ota_account(device_id))
         .ok()
         .flatten()
+}
+
+/// Schreibt einen Text an einen Ort, den der Nutzer im Speichern-Dialog gewählt hat (Monitor-Log, Plotter-CSV).
+#[tauri::command]
+pub fn export_write(path: std::path::PathBuf, text: String) -> Result<(), String> {
+    std::fs::write(&path, text).map_err(|e| format!("Speichern fehlgeschlagen: {e}"))
 }

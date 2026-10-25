@@ -134,7 +134,7 @@ pub fn sibling_tool(compiler: &Path, tool: &str) -> Option<PathBuf> {
     Some(compiler.with_file_name(format!("{prefix}-{tool}")))
 }
 
-fn compiler_from_db(db: &str) -> Option<PathBuf> {
+pub(crate) fn compiler_from_db(db: &str) -> Option<PathBuf> {
     let entries: Vec<DbEntry> = serde_json::from_str(db).ok()?;
     entries.iter().find_map(|e| {
         let first = e
@@ -147,7 +147,7 @@ fn compiler_from_db(db: &str) -> Option<PathBuf> {
     })
 }
 
-fn find_elf(build_dir: &Path) -> Option<PathBuf> {
+pub(crate) fn find_elf(build_dir: &Path) -> Option<PathBuf> {
     std::fs::read_dir(build_dir)
         .ok()?
         .flatten()

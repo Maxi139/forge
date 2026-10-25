@@ -109,6 +109,10 @@
   --plot-2: #4fc3e8;
   --plot-3: #f0c24b;
   --plot-4: #c6a5f5;
+  --plot-5: #f07a6a;
+  --plot-6: #6fd18b;
+  --plot-7: #f09cc8;
+  --plot-8: #9fb0bd;
   --trace: #1e2328;
   --copper: #c08552;
   --shadow-pop: 0 16px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.06);
@@ -159,6 +163,10 @@
     --plot-2: #0a78a0;
     --plot-3: #8a6400;
     --plot-4: #6c3bb0;
+    --plot-5: #c4412b;
+    --plot-6: #1a8f4a;
+    --plot-7: #b0407c;
+    --plot-8: #5a6b78;
     --trace: #e6e3dc;
     --copper: #97592a;
     --shadow-pop: 0 12px 32px rgba(21,24,27,0.14), 0 0 0 1px rgba(21,24,27,0.08);
@@ -209,6 +217,10 @@
   --plot-2: #0a78a0;
   --plot-3: #8a6400;
   --plot-4: #6c3bb0;
+  --plot-5: #c4412b;
+  --plot-6: #1a8f4a;
+  --plot-7: #b0407c;
+  --plot-8: #5a6b78;
   --trace: #e6e3dc;
   --copper: #97592a;
   --shadow-pop: 0 12px 32px rgba(21,24,27,0.14), 0 0 0 1px rgba(21,24,27,0.08);

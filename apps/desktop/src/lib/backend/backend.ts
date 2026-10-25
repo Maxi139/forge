@@ -39,6 +39,7 @@ import type {
   SearchOptions,
   SearchResult,
   ModelList,
+  BacktraceFrame,
   MonitorLine,
   MonitorState,
   ProjectInfo,
@@ -137,7 +138,7 @@ export interface Backend {
   probeDevice(port: string): Promise<ChipProbe>;
   monitorStart(deviceId: string | null, port: string, baud: number): Promise<void>;
   monitorStop(): Promise<void>;
-  monitorWrite(text: string, ending: "none" | "nl" | "nlcr"): Promise<void>;
+  monitorWrite(text: string, ending: "none" | "nl" | "cr" | "nlcr"): Promise<void>;
   onMonitorLines(handler: (lines: MonitorLine[]) => void): Promise<Unsubscribe>;
   onMonitorState(handler: (s: MonitorState) => void): Promise<Unsubscribe>;
 
@@ -220,4 +221,15 @@ export interface Backend {
   memoryDetail(): Promise<MemoryDetail>;
   otaPasswordSet(deviceId: string): Promise<boolean>;
   setOtaPassword(deviceId: string, password: string | null): Promise<void>;
+  /** Fragt nach einem Ort und schreibt den Text dorthin. Liefert den Pfad, oder null bei Abbruch. */
+  saveTextAs(defaultName: string, text: string): Promise<string | null>;
+  /** Startet das Board über DTR/RTS neu. */
+  monitorReset(): Promise<void>;
+  /** Ändert die Baudrate bei offenem Monitor, ohne den Port zu schließen. */
+  monitorSetBaud(baud: number): Promise<void>;
+  /** Löst Adressen einer Monitor-Zeile mit addr2line gegen den letzten Build auf. */
+  decodeBacktrace(text: string): Promise<BacktraceFrame[]>;
 }
+
+
+

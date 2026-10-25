@@ -43,3 +43,45 @@ export function formatBytes(b: number): string {
   if (b >= 1024) return `${(b / 1024).toFixed(1)} KB`;
   return `${b} B`;
 }
+
+export interface LineFilter {
+  query: string;
+  matchCase: boolean;
+  errorsOnly: boolean;
+}
+
+/** Zeilen des Monitors nach Text und Art. Kurze Zeilen mit leerer Suche bleiben alle erhalten. */
+export function filterLines<T extends { text: string; kind?: string }>(lines: T[], f: LineFilter): T[] {
+  const q = f.matchCase ? f.query : f.query.toLowerCase();
+  return lines.filter((l) => {
+    if (f.errorsOnly && l.kind !== "err") return false;
+    if (!q) return true;
+    return (f.matchCase ? l.text : l.text.toLowerCase()).includes(q);
+  });
+}
+
+function stamp(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}.${String(ms % 1000).padStart(3, "0")}`;
+}
+
+/** Zeilen als Text für Zwischenablage und Datei. Gesendetes ist mit `→` markiert. */
+export function formatLog(lines: Array<{ t?: number; kind?: string; text: string }>, timestamps: boolean): string {
+  return lines
+    .map((l) => `${timestamps && l.t != null ? `${stamp(l.t)} ` : ""}${l.kind === "tx" ? "→ " : ""}${l.text}`)
+    .join("\n");
+}
+
+/** Plotterwerte als CSV: eine Spalte je Serie, rechtsbündig nach Zeit ausgerichtet (die letzte Zeile ist der neueste Wert). */
+export function plotCsv(series: Array<{ name: string; values: number[] }>): string {
+  const rows = series.reduce((m, s) => Math.max(m, s.values.length), 0);
+  const quote = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+  const out = [["Nr", ...series.map((s) => quote(s.name))].join(",")];
+  for (let r = 0; r < rows; r++) {
+    out.push([String(r + 1), ...series.map((s) => {
+      const v = s.values[r - (rows - s.values.length)];
+      return v == null ? "" : String(v);
+    })].join(","));
+  }
+  return out.join("\n") + "\n";
+}

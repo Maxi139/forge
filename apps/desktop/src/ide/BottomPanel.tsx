@@ -9,12 +9,32 @@ import { useStore } from "../lib/store";
 import { AiThreadView } from "./AiThread";
 import { projectRelative } from "./Explorer";
 
+const SPLIT_KEY = "forge.monitorSplit";
+
+function readSplit(): boolean {
+  try {
+    return localStorage.getItem(SPLIT_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 export function BottomPanel({ onReveal }: { onReveal(d: Diagnostic): void }) {
   const tab = useStore((s) => s.bottomTab);
   const setTab = useStore((s) => s.setBottomTab);
   const patchLayout = useStore((s) => s.patchLayout);
   const diagnostics = useStore((s) => s.diagnostics);
   const clearOutput = useStore((s) => s.clearOutput);
+  const [split, setSplit] = useState(readSplit);
+  const toggleSplit = () => {
+    setSplit(!split);
+    try {
+      localStorage.setItem(SPLIT_KEY, split ? "0" : "1");
+    } catch {
+      /* Ohne Speicher gilt die Wahl nur für diese Sitzung. */
+    }
+  };
+  const serial = tab === "monitor" || tab === "plotter";
 
   // „Besprechen“ im Editor springt hierher und klappt das Gespräch auf.
   useEffect(() => {
@@ -59,6 +79,17 @@ export function BottomPanel({ onReveal }: { onReveal(d: Diagnostic): void }) {
             onChange={(id) => setTab(id as typeof tab)}
             actions={
               <>
+                {serial ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon="split"
+                    aria-pressed={split}
+                    aria-label={t.panels.split}
+                    title={split ? t.panels.unsplit : t.panels.split}
+                    onClick={toggleSplit}
+                  />
+                ) : null}
                 {tab === "output" ? <Button variant="ghost" size="sm" icon="trash" aria-label={t.panels.clearOutput} title={t.panels.clearOutput} onClick={clearOutput} /> : null}
                 <Button variant="ghost" size="sm" icon="chevron-down" aria-label={t.panels.hide} title={t.panels.hide} onClick={() => patchLayout({ bottomOpen: false })} />
               </>
@@ -69,8 +100,14 @@ export function BottomPanel({ onReveal }: { onReveal(d: Diagnostic): void }) {
       >
         {tab === "problems" ? <Problems list={all} onReveal={onReveal} /> : null}
         {tab === "output" ? <Output /> : null}
-        {tab === "monitor" ? <MonitorView /> : null}
-        {tab === "plotter" ? <PlotterView /> : null}
+        {serial && split ? (
+          <div className="ide-bottom-split">
+            <MonitorView />
+            <PlotterView />
+          </div>
+        ) : null}
+        {!split && tab === "monitor" ? <MonitorView /> : null}
+        {!split && tab === "plotter" ? <PlotterView /> : null}
       </Panel>
     </>
   );

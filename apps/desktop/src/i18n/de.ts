@@ -59,6 +59,8 @@ export const de = {
     hide: "Panel ausblenden",
     show: "Panel einblenden",
     clearOutput: "Ausgabe leeren",
+    split: "Monitor und Plotter nebeneinander",
+    unsplit: "Monitor und Plotter einzeln",
   },
 
   titlebar: {
@@ -278,6 +280,10 @@ export const de = {
     plotterEmpty: "Noch keine Werte",
     plotterEmptyText: "Der Plotter zeichnet Werte im Format name:wert aus dem Monitor.",
     reconnecting: (reason: string) => `Verbinde neu: ${reason}`,
+    exportName: "monitor-log.txt",
+    exported: (path: string) => `Log gespeichert: ${path}`,
+    plotName: "plotter.csv",
+    plotExported: (path: string) => `Werte gespeichert: ${path}`,
   },
 
   libraries: {

@@ -267,6 +267,11 @@ button.fg-status-item:hover { background: var(--surface-hover); color: var(--ink
 .fg-mon-bar .fg-field, .fg-mon-in .fg-field { flex: none; width: 104px; }
 .fg-mon-bar .fg-toggle, .fg-mon-bar .fg-mon-port { white-space: nowrap; }
 .fg-mon-bar .fg-mon-port { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.fg-mon-filter { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--line); flex: none; }
+.fg-mon-filter .fg-field { flex: 1; min-width: 80px; max-width: 320px; width: auto; }
+.fg-mon-filter .fg-toggle { white-space: nowrap; }
+.fg-mon-count { margin-left: auto; font-size: 11.5px; color: var(--ink-faint); white-space: nowrap; }
+.fg-mon-status { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--warning); }
 .fg-mon-out { flex: 1; min-height: 0; overflow: auto; padding: 8px 12px; font-family: var(--font-mono); font-size: 12.5px; line-height: 19px; font-variant-numeric: tabular-nums; }
 .fg-mon-line { display: flex; gap: 12px; white-space: pre-wrap; word-break: break-all; animation: fg-nudge var(--dur-1) var(--ease); }
 .fg-mon-ts { color: var(--ink-faint); flex: none; user-select: none; }
@@ -276,6 +281,15 @@ button.fg-status-item:hover { background: var(--surface-hover); color: var(--ink
 .fg-mon-line--sys .fg-mon-text { color: var(--ink-muted); font-style: italic; }
 .fg-mon-line--err .fg-mon-text { color: var(--error); }
 .fg-mon-dir { color: var(--info); flex: none; margin-right: -6px; }
+.fg-mon-decode { flex: none; margin-left: auto; align-self: flex-start; height: 18px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--radius-pill); background: transparent; color: var(--ink-muted); font: inherit; font-family: var(--font-sans); font-size: 11px; cursor: pointer; }
+.fg-mon-decode:hover:not(:disabled) { color: var(--ink); border-color: var(--ink-muted); }
+.fg-mon-frames { margin: 2px 0 4px 24px; padding-left: 10px; border-left: 2px solid var(--glut); }
+.fg-mon-frames.is-error { color: var(--warning); border-left-color: var(--warning); font-family: var(--font-sans); font-size: 12px; }
+.fg-mon-frame { display: flex; gap: 12px; white-space: pre-wrap; }
+.fg-mon-addr { color: var(--ink-faint); flex: none; }
+.fg-mon-fn { color: var(--ink); }
+.fg-mon-loc { margin-left: auto; flex: none; padding: 0; border: 0; background: none; font: inherit; color: var(--info); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.fg-mon-loc.is-plain { color: var(--ink-muted); text-decoration: none; cursor: default; }
 .fg-mon-in { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 8px 0 12px; border-top: 1px solid var(--line); flex: none; }
 .fg-mon-in .fg-mon-prompt { color: var(--glut); font-family: var(--font-mono); font-weight: 600; }
 .fg-mon-in input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-family: var(--font-mono); font-size: 12.5px; caret-color: var(--cursor); }
@@ -293,22 +307,33 @@ button.fg-status-item:hover { background: var(--surface-hover); color: var(--ink
 
 /* Plotter */
 .fg-plot { display: flex; flex-direction: column; min-height: 0; height: 100%; background: var(--surface); }
-.fg-plot-head { display: flex; align-items: center; gap: 16px; height: 34px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--line); background: var(--surface-panel); flex: none; }
+.fg-plot-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; min-height: 34px; padding-top: 3px; padding-bottom: 3px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--line); background: var(--surface-panel); flex: none; }
 .fg-legend { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--ink-muted); white-space: nowrap; }
 .fg-legend .fg-mono { color: var(--ink); font-size: 11.5px; min-width: 44px; }
 .fg-sw { width: 12px; height: 3px; border-radius: var(--radius-pill); }
+.fg-sw-5 { background: var(--plot-5); } .fg-sw-6 { background: var(--plot-6); } .fg-sw-7 { background: var(--plot-7); } .fg-sw-8 { background: var(--plot-8); }
 .fg-sw-1 { background: var(--plot-1); } .fg-sw-2 { background: var(--plot-2); } .fg-sw-3 { background: var(--plot-3); } .fg-sw-4 { background: var(--plot-4); }
 .fg-plot-head .fg-spacer { flex: 1; }
+.fg-legend { background: none; border: 0; padding: 2px 4px; font: inherit; font-size: 12px; cursor: pointer; border-radius: var(--radius-sm, 4px); }
+.fg-legend:hover { background: var(--hover, rgba(127,127,127,.12)); }
+.fg-legend.is-off { opacity: .45; text-decoration: line-through; }
+.fg-plot-tools { display: inline-flex; align-items: center; gap: 4px; }
+.fg-plot-num { width: 58px; height: 22px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm, 4px); background: transparent; color: var(--ink); font-family: var(--font-mono); font-size: 11.5px; }
+.fg-plot-num::placeholder { color: var(--ink-faint); }
+.fg-plot-area { cursor: grab; touch-action: none; }
+.fg-plot-area.is-panned { cursor: grabbing; }
 .fg-plot-area { position: relative; flex: 1; min-height: 120px; margin: 12px 12px 22px 52px; background-image: var(--fg-raster); background-size: 24px 24px; background-position: -12px -12px; }
 .fg-plot-area svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
 .fg-plot-grid { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .fg-plot-zero { stroke: var(--line-strong); }
 .fg-plot-line { fill: none; stroke-width: 1.6; vector-effect: non-scaling-stroke; stroke-linejoin: round; stroke-linecap: round; }
+.fg-pl-5 { stroke: var(--plot-5); } .fg-pl-6 { stroke: var(--plot-6); } .fg-pl-7 { stroke: var(--plot-7); } .fg-pl-8 { stroke: var(--plot-8); }
 .fg-pl-1 { stroke: var(--plot-1); } .fg-pl-2 { stroke: var(--plot-2); } .fg-pl-3 { stroke: var(--plot-3); } .fg-pl-4 { stroke: var(--plot-4); }
 .fg-plot-y { position: absolute; left: -48px; width: 40px; text-align: right; transform: translateY(-50%); font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
 .fg-plot-x { position: absolute; bottom: -20px; font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint); }
 .fg-plot-now { position: absolute; right: 0; top: 0; bottom: 0; border-right: 1px dashed var(--line-strong); }
 .fg-plot-head-dot { position: absolute; right: -3.5px; width: 7px; height: 7px; margin-top: -3.5px; border-radius: 50%; }
+.fg-plot-head-dot.d-5 { background: var(--plot-5); } .fg-plot-head-dot.d-6 { background: var(--plot-6); } .fg-plot-head-dot.d-7 { background: var(--plot-7); } .fg-plot-head-dot.d-8 { background: var(--plot-8); }
 .fg-plot-head-dot.d-1 { background: var(--plot-1); box-shadow: 0 0 0 3px var(--glut-soft); } .fg-plot-head-dot.d-2 { background: var(--plot-2); } .fg-plot-head-dot.d-3 { background: var(--plot-3); } .fg-plot-head-dot.d-4 { background: var(--plot-4); }
 .fg-plot.is-paused .fg-plot-area { opacity: .85; }
 

@@ -1,6 +1,6 @@
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
-import { cx, formatBytes } from "../util";
-import { Badge, Button, Kbd, Select, StatusDot, Toggle, type ConnectionState } from "./Controls";
+import { Fragment, useEffect, useRef, useState, type ReactNode, type WheelEvent } from "react";
+import { cx, filterLines, formatBytes, formatLog, plotCsv } from "../util";
+import { Badge, Button, Input, Kbd, Select, StatusDot, Toggle, type ConnectionState } from "./Controls";
 import { Icon } from "./Icon";
 
 /* ---------- Serial Monitor ---------- */
@@ -12,24 +12,46 @@ export interface MonitorLine {
   text: string;
 }
 
-export type LineEnding = "none" | "nl" | "nlcr";
+/** Eine aufgelöste Stelle aus einem Backtrace. `openable`: die Datei gehört zum Projekt. */
+export interface MonitorFrame {
+  addr: string;
+  function: string;
+  file: string;
+  line: number;
+  openable?: boolean;
+}
+
+export type LineEnding = "none" | "nl" | "cr" | "nlcr";
 
 export interface SerialMonitorProps {
   lines: MonitorLine[];
   port?: string;
   baud?: number;
   state?: ConnectionState;
+  /** Zusatz zum Status, etwa der Grund für ein Neuverbinden. */
+  statusText?: string;
   timestamps?: boolean;
   onSend?(text: string, ending: LineEnding): void;
   onClear?(): void;
   onBaud?(baud: number): void;
+  /** Gibt die gezeigten Zeilen als Text zum Speichern heraus. */
+  onExport?(text: string): void;
+  /** Startet das Board neu. */
+  onReset?(): void;
+  /** Zeilen, für die „Auflösen“ angeboten wird (Backtrace, Register-Dump). */
+  canDecode?(line: MonitorLine): boolean;
+  /** Löst die Adressen einer Zeile auf. Fehler werden als Text gezeigt. */
+  onDecode?(line: MonitorLine): Promise<MonitorFrame[]>;
+  onOpenFrame?(frame: MonitorFrame): void;
   height?: number;
   className?: string;
   /** Zusätzliche Schaltflächen am Ende der Leiste. */
   actions?: ReactNode;
 }
 
-const BAUDS = ["9600", "57600", "115200", "230400", "460800", "921600"];
+const BAUDS = ["9600", "19200", "38400", "57600", "74880", "115200", "230400", "460800", "921600", "1500000", "2000000"];
+const MIN_BAUD = 300;
+const MAX_BAUD = 4_000_000;
 
 function formatTimestamp(ms: number): string {
   const s = Math.floor(ms / 1000);
@@ -65,10 +87,16 @@ export function SerialMonitor({
   port,
   baud = 115200,
   state = "connected",
+  statusText,
   timestamps = true,
   onSend,
   onClear,
   onBaud,
+  onExport,
+  onReset,
+  canDecode,
+  onDecode,
+  onOpenFrame,
   height,
   className,
   actions,
@@ -77,40 +105,166 @@ export function SerialMonitor({
   const [ts, setTs] = useState(timestamps);
   const [auto, setAuto] = useState(true);
   const [ending, setEnding] = useState<LineEnding>("nl");
+  const [baudText, setBaudText] = useState(String(baud));
+  useEffect(() => setBaudText(String(baud)), [baud]);
+  const commitBaud = () => {
+    const n = Number(baudText);
+    if (Number.isInteger(n) && n >= MIN_BAUD && n <= MAX_BAUD) {
+      if (n !== baud) onBaud?.(n);
+    } else setBaudText(String(baud));
+  };
+  const [decoded, setDecoded] = useState<Record<string, { busy?: boolean; frames?: MonitorFrame[]; error?: string }>>({});
+  const decode = async (key: string, line: MonitorLine) => {
+    setDecoded((d) => ({ ...d, [key]: { busy: true } }));
+    try {
+      const frames = (await onDecode?.(line)) ?? [];
+      setDecoded((d) => ({ ...d, [key]: frames.length ? { frames } : { error: "Keine Stelle gefunden. Passt die ELF-Datei des letzten Builds zum Sketch auf dem Board?" } }));
+    } catch (e) {
+      setDecoded((d) => ({ ...d, [key]: { error: e instanceof Error ? e.message : String(e) } }));
+    }
+  };
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [matchCase, setMatchCase] = useState(false);
+  const [errorsOnly, setErrorsOnly] = useState(false);
   const out = useRef<HTMLDivElement>(null);
+  /** Gesendetes, ältestes zuerst. `cursor` zeigt beim Blättern darauf, sonst auf das Ende. */
+  const history = useRef<string[]>([]);
+  const cursor = useRef(0);
+  const draft = useRef("");
+
+  const submit = () => {
+    if (!input) return;
+    onSend?.(input, ending);
+    const h = history.current;
+    if (h[h.length - 1] !== input) h.push(input);
+    if (h.length > 100) h.shift();
+    cursor.current = h.length;
+    setInput("");
+  };
+  const browse = (dir: -1 | 1) => {
+    const h = history.current;
+    if (!h.length) return;
+    if (cursor.current === h.length) draft.current = input;
+    cursor.current = Math.min(h.length, Math.max(0, cursor.current + dir));
+    setInput(cursor.current === h.length ? draft.current : h[cursor.current]);
+  };
+
+  const filtering = filterOpen && (query !== "" || errorsOnly);
+  const shown = filtering ? filterLines(lines, { query, matchCase, errorsOnly }) : lines;
+
+  const copy = () => {
+    const sel = window.getSelection();
+    const inside = sel && !sel.isCollapsed && out.current?.contains(sel.anchorNode);
+    const text = inside ? sel.toString() : formatLog(shown, ts);
+    void navigator.clipboard?.writeText(text).catch(() => undefined);
+  };
 
   useEffect(() => {
     if (auto && out.current) out.current.scrollTop = out.current.scrollHeight;
-  }, [lines.length, auto]);
+  }, [shown.length, auto]);
 
   return (
     <div className={cx("fg-monitor", className)} style={height ? { height } : undefined}>
       <div className="fg-mon-bar">
         <StatusDot state={state} />
         <span className="fg-mon-port">{port ?? "Kein Port"}</span>
+        {statusText ? (
+          <span className="fg-mon-status" role="status" title={statusText}>
+            {statusText}
+          </span>
+        ) : null}
         <span className="fg-spacer" />
         <Toggle icon="clock" title="Zeitstempel" on={ts} onToggle={() => setTs(!ts)} />
         <Toggle icon="arrow-down" title="Autoscroll" on={auto} onToggle={() => setAuto(!auto)} />
-        <Select
+        <Toggle icon="search" title="Filter und Suche" on={filterOpen} onToggle={() => setFilterOpen(!filterOpen)} />
+        <Input
           size="sm"
           mono
+          inputMode="numeric"
+          list="fg-baud-list"
           aria-label="Baudrate"
-          value={String(baud)}
-          onChange={(e) => onBaud?.(Number(e.target.value))}
-          options={BAUDS}
+          title="Baudrate (frei eingeben oder wählen)"
+          value={baudText}
+          onChange={(e) => setBaudText(e.target.value.replace(/\D/g, ""))}
+          onBlur={commitBaud}
+          onKeyDown={(e) => e.key === "Enter" && commitBaud()}
         />
+        <datalist id="fg-baud-list">
+          {BAUDS.map((b) => (
+            <option key={b} value={b} />
+          ))}
+        </datalist>
+        {onReset ? <Button variant="ghost" size="sm" icon="refresh" aria-label="Board neu starten" title="Board neu starten (RTS-Reset)" onClick={onReset} /> : null}
+        <Button variant="ghost" size="sm" icon="file" aria-label="Auswahl kopieren" title="Auswahl kopieren (ohne Auswahl: alles Gezeigte)" onClick={copy} />
+        {onExport ? (
+          <Button variant="ghost" size="sm" icon="arrow-down" aria-label="Log exportieren" title="Log als Datei speichern" disabled={shown.length === 0} onClick={() => onExport(formatLog(shown, ts))} />
+        ) : null}
         <Button variant="ghost" size="sm" icon="trash" aria-label="Ausgabe leeren" title="Ausgabe leeren" onClick={onClear} />
         {actions}
       </div>
+      {filterOpen ? (
+        <div className="fg-mon-filter">
+          <Input
+            size="sm"
+            mono
+            icon="search"
+            autoFocus
+            aria-label="Ausgabe filtern"
+            placeholder="Text filtern …"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <Toggle title="Groß-/Kleinschreibung beachten" on={matchCase} onToggle={() => setMatchCase(!matchCase)}>
+            Aa
+          </Toggle>
+          <Toggle title="Nur Fehlerzeilen" on={errorsOnly} onToggle={() => setErrorsOnly(!errorsOnly)}>
+            Nur Fehler
+          </Toggle>
+          <span className="fg-mon-count fg-mono">{filtering ? `${shown.length} von ${lines.length}` : `${lines.length} Zeilen`}</span>
+        </div>
+      ) : null}
       <div className="fg-mon-out" ref={out} role="log" aria-live="off">
-        {lines.map((l, i) => {
+        {shown.map((l, i) => {
           const kind = l.kind ?? "rx";
+          const key = String(l.id ?? i);
+          const dec = decoded[key];
           return (
-            <div key={l.id ?? i} className={`fg-mon-line fg-mon-line--${kind}`}>
-              {ts && l.t != null ? <span className="fg-mon-ts">{formatTimestamp(l.t)}</span> : null}
-              {kind === "tx" ? <span className="fg-mon-dir">→</span> : null}
-              <span className="fg-mon-text">{kind === "rx" ? keyValues(l.text) : l.text}</span>
-            </div>
+            <Fragment key={key}>
+              <div className={`fg-mon-line fg-mon-line--${kind}`}>
+                {ts && l.t != null ? <span className="fg-mon-ts">{formatTimestamp(l.t)}</span> : null}
+                {kind === "tx" ? <span className="fg-mon-dir">→</span> : null}
+                <span className="fg-mon-text">{kind === "rx" ? keyValues(l.text) : l.text}</span>
+                {onDecode && canDecode?.(l) && !dec?.frames ? (
+                  <button type="button" className="fg-mon-decode" disabled={dec?.busy} onClick={() => void decode(key, l)}>
+                    {dec?.busy ? "Löse auf …" : "Auflösen"}
+                  </button>
+                ) : null}
+              </div>
+              {dec?.error ? <div className="fg-mon-frames is-error">{dec.error}</div> : null}
+              {dec?.frames ? (
+                <div className="fg-mon-frames">
+                  {dec.frames.map((f) => {
+                    const place = `${f.file.slice(f.file.lastIndexOf("/") + 1)}:${f.line}`;
+                    return (
+                      <div key={f.addr} className="fg-mon-frame">
+                        <span className="fg-mono fg-mon-addr">{f.addr}</span>
+                        <span className="fg-mon-fn">{f.function}</span>
+                        {f.openable && onOpenFrame ? (
+                          <button type="button" className="fg-mon-loc" title={f.file} onClick={() => onOpenFrame(f)}>
+                            {place}
+                          </button>
+                        ) : (
+                          <span className="fg-mon-loc is-plain" title={f.file}>
+                            {place}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </Fragment>
           );
         })}
       </div>
@@ -120,9 +274,11 @@ export function SerialMonitor({
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key !== "Enter" || !input) return;
-            onSend?.(input, ending);
-            setInput("");
+            if (e.key === "Enter") submit();
+            else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+              e.preventDefault();
+              browse(e.key === "ArrowUp" ? -1 : 1);
+            }
           }}
           placeholder="An das Board senden …"
           aria-label="Nachricht senden"
@@ -135,6 +291,7 @@ export function SerialMonitor({
           options={[
             { value: "none", label: "Kein Zeilenende" },
             { value: "nl", label: "NL" },
+            { value: "cr", label: "CR" },
             { value: "nlcr", label: "NL & CR" },
           ]}
         />
@@ -153,79 +310,174 @@ export interface PlotSeries {
 
 export interface PlotterProps {
   series: PlotSeries[];
+  /** Fester y-Bereich als Voreinstellung. Ohne Angabe passt er sich den sichtbaren Werten an. */
   min?: number;
   max?: number;
+  /** Zahl der gezeigten Werte beim Start. */
   window?: number;
   interval?: number;
   windowLabel?: string;
   paused?: boolean;
   onPause?(): void;
+  /** Gibt die Werte als CSV zum Speichern heraus. */
+  onExport?(csv: string): void;
   actions?: ReactNode;
   height?: number;
   className?: string;
 }
 
-export function Plotter({ series, min: fixedMin, max: fixedMax, window: n = 160, interval = 50, windowLabel, paused, onPause, actions, height, className }: PlotterProps) {
+const MIN_WINDOW = 10;
+
+function parseNum(s: string): number | null {
+  const n = Number(s.replace(",", "."));
+  return s.trim() !== "" && Number.isFinite(n) ? n : null;
+}
+
+export function Plotter({ series, min: fixedMin, max: fixedMax, window: initial = 160, interval = 50, windowLabel, paused, onPause, onExport, actions, height, className }: PlotterProps) {
   const H = 100;
   const W = 100;
-  const all = series.flatMap((s) => s.values.slice(-n));
-  const min = fixedMin ?? Math.min(0, ...all);
-  let max = fixedMax ?? Math.max(1, ...all);
-  if (max === min) max = min + 1;
+  const total = series.reduce((m, s) => Math.max(m, s.values.length), 0);
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [span, setSpan] = useState(initial);
+  /** Wie viele Werte das Fenster vom aktuellen Ende entfernt ist. 0 folgt live. */
+  const [offset, setOffset] = useState(0);
+  const [lo, setLo] = useState(fixedMin != null ? String(fixedMin) : "");
+  const [hi, setHi] = useState(fixedMax != null ? String(fixedMax) : "");
+  const area = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ x: number; offset: number } | null>(null);
+  const prevTotal = useRef(total);
+
+  const n = Math.max(MIN_WINDOW, Math.min(span, Math.max(total, MIN_WINDOW)));
+  const maxOffset = Math.max(0, total - n);
+  const off = Math.min(offset, maxOffset);
+
+  // Wer zurückgeblättert hat, behält seine Stelle, auch wenn neue Werte kommen.
+  useEffect(() => {
+    const added = total - prevTotal.current;
+    prevTotal.current = total;
+    if (added > 0) setOffset((o) => (o > 0 ? o + added : o));
+  }, [total]);
+
+  const zoom = (factor: number) => setSpan(Math.round(Math.max(MIN_WINDOW, Math.min(Math.max(total, 200) * 2, n * factor))));
+  const onWheel = (e: WheelEvent) => {
+    if (e.deltaY) zoom(e.deltaY < 0 ? 0.8 : 1.25);
+  };
+
+  const slice = (s: PlotSeries) => {
+    const end = s.values.length - off;
+    return s.values.slice(Math.max(0, end - n), end);
+  };
+  const visible = series.map((s, i) => ({ s, i })).filter(({ s }) => !hidden.has(s.name));
+  const all = visible.flatMap(({ s }) => slice(s));
+
+  const fixLo = parseNum(lo);
+  const fixHi = parseNum(hi);
+  let min = fixLo ?? (all.length ? Math.min(...all) : 0);
+  let max = fixHi ?? (all.length ? Math.max(...all) : 1);
+  if (fixLo == null && fixHi == null) {
+    const pad = (max - min) * 0.08 || 0.5;
+    min -= pad;
+    max += pad;
+  }
+  if (max <= min) max = min + 1;
   const y = (v: number) => H - ((v - min) / (max - min)) * H;
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => min + (max - min) * f);
   const fmt = (v: number) => {
     const a = Math.abs(max - min);
     return a >= 100 ? String(Math.round(v)) : a >= 10 ? v.toFixed(1) : v.toFixed(2);
   };
+  const toggle = (name: string) =>
+    setHidden((h) => {
+      const next = new Set(h);
+      if (!next.delete(name)) next.add(name);
+      return next;
+    });
 
   return (
     <div className={cx("fg-plot", paused && "is-paused", className)} style={height ? { height } : undefined}>
       <div className="fg-plot-head">
         {series.map((s, i) => {
           const last = s.values[s.values.length - 1];
+          const isOff = hidden.has(s.name);
           return (
-            <span key={s.name} className="fg-legend">
+            <button key={s.name} type="button" className={cx("fg-legend", isOff && "is-off")} aria-pressed={!isOff} title={isOff ? "Einblenden" : "Ausblenden"} onClick={() => toggle(s.name)}>
               <i className={`fg-sw fg-sw-${i + 1}`} />
               {s.name}
               <span className="fg-mono">{last == null ? "" : fmt(last) + (s.unit ? ` ${s.unit}` : "")}</span>
-            </span>
+            </button>
           );
         })}
         <span className="fg-spacer" />
+        <span className="fg-plot-tools">
+          <input className="fg-plot-num" inputMode="decimal" aria-label="y von" placeholder="y min" title="Fester y-Bereich, leer für automatisch" value={lo} onChange={(e) => setLo(e.target.value)} />
+          <input className="fg-plot-num" inputMode="decimal" aria-label="y bis" placeholder="y max" title="Fester y-Bereich, leer für automatisch" value={hi} onChange={(e) => setHi(e.target.value)} />
+          <Button variant="ghost" size="sm" aria-label="Weniger Werte zeigen (hineinzoomen)" title="Hineinzoomen" onClick={() => zoom(0.7)}>
+            +
+          </Button>
+          <Button variant="ghost" size="sm" aria-label="Mehr Werte zeigen (herauszoomen)" title="Herauszoomen" onClick={() => zoom(1.4)}>
+            −
+          </Button>
+          {off > 0 ? (
+            <Button variant="ghost" size="sm" icon="arrow-down" onClick={() => setOffset(0)}>
+              Live
+            </Button>
+          ) : null}
+        </span>
         {actions}
+        {onExport ? (
+          <Button variant="ghost" size="sm" icon="file" title="Werte als CSV speichern" disabled={total === 0} onClick={() => onExport(plotCsv(series))}>
+            CSV
+          </Button>
+        ) : null}
         {onPause ? (
           <Button variant="ghost" size="sm" icon={paused ? "play" : "pause"} onClick={onPause}>
             {paused ? "Weiter" : "Pause"}
           </Button>
         ) : null}
       </div>
-      <div className="fg-plot-area">
+      <div
+        className={cx("fg-plot-area", off > 0 && "is-panned")}
+        ref={area}
+        onWheel={onWheel}
+        onPointerDown={(e) => {
+          drag.current = { x: e.clientX, offset: off };
+          e.currentTarget.setPointerCapture?.(e.pointerId);
+        }}
+        onPointerMove={(e) => {
+          const d = drag.current;
+          const w = area.current?.clientWidth;
+          if (!d || !w) return;
+          const moved = Math.round(((e.clientX - d.x) / w) * n);
+          setOffset(Math.max(0, Math.min(maxOffset, d.offset + moved)));
+        }}
+        onPointerUp={() => (drag.current = null)}
+        onPointerCancel={() => (drag.current = null)}
+      >
         {ticks.map((t, i) => (
           <span key={i} className="fg-plot-y" style={{ top: `${100 - i * 25}%` }}>
             {fmt(t)}
           </span>
         ))}
-        <span className="fg-plot-x" style={{ left: 0 }}>{`−${windowLabel ?? `${((n * interval) / 1000).toFixed(0)} s`}`}</span>
-        <span className="fg-plot-x" style={{ right: 0 }}>jetzt</span>
+        <span className="fg-plot-x" style={{ left: 0 }}>{`−${off + n} ${windowLabel ?? `Werte (${(((off + n) * interval) / 1000).toFixed(0)} s)`}`}</span>
+        <span className="fg-plot-x" style={{ right: 0 }}>{off > 0 ? `−${off}` : "jetzt"}</span>
         <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden>
           {ticks.map((t, i) => (
-            <line key={i} className={cx("fg-plot-grid", t === 0 && "fg-plot-zero")} x1={0} x2={W} y1={y(t)} y2={y(t)} />
+            <line key={i} className={cx("fg-plot-grid", Math.abs(t) < (max - min) / 1000 && "fg-plot-zero")} x1={0} x2={W} y1={y(t)} y2={y(t)} />
           ))}
-          {series.map((s, i) => {
-            const v = s.values.slice(-n);
-            const off = n - v.length;
-            const d = v
-              .map((val, j) => `${j ? "L" : "M"}${(((j + off) / (n - 1)) * W).toFixed(2)} ${y(val).toFixed(2)}`)
-              .join("");
+          {visible.map(({ s, i }) => {
+            const v = slice(s);
+            const start = n - v.length;
+            const d = v.map((val, j) => `${j ? "L" : "M"}${(((j + start) / (n - 1)) * W).toFixed(2)} ${y(val).toFixed(2)}`).join("");
             return <path key={s.name} className={`fg-plot-line fg-pl-${i + 1}`} d={d} />;
           })}
         </svg>
         <span className="fg-plot-now" />
-        {series.map((s, i) => {
-          const last = s.values[s.values.length - 1];
-          return last == null ? null : <span key={s.name} className={`fg-plot-head-dot d-${i + 1}`} style={{ top: `${y(last)}%` }} />;
-        })}
+        {off === 0
+          ? visible.map(({ s, i }) => {
+              const last = s.values[s.values.length - 1];
+              return last == null ? null : <span key={s.name} className={`fg-plot-head-dot d-${i + 1}`} style={{ top: `${Math.max(0, Math.min(100, y(last)))}%` }} />;
+            })
+          : null}
       </div>
     </div>
   );

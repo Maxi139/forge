@@ -1,6 +1,7 @@
 //! Anbindung an `arduino-cli`, den Compiler und esptool. Alles läuft als eigener Prozess,
 //! mit Ausgabe in Echtzeit und der Möglichkeit abzubrechen.
 
+pub mod backtrace;
 pub mod build;
 pub mod check;
 pub mod cli;
