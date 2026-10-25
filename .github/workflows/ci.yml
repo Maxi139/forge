@@ -29,6 +29,8 @@ jobs:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
       - run: pnpm install --frozen-lockfile
+      - run: node scripts/sync-version.mjs --check
+      - run: pnpm exec biome check .
       - run: pnpm --filter @forge/desktop exec tsc --noEmit
       - run: pnpm --filter @forge/desktop exec vitest run
       - run: cargo fmt --all -- --check
