@@ -139,7 +139,7 @@ interface Hardware {
 
   startMonitor(): Promise<void>;
   stopMonitor(): Promise<void>;
-  sendToMonitor(text: string, ending: "none" | "nl" | "nlcr"): Promise<void>;
+  sendToMonitor(text: string, ending: "none" | "nl" | "cr" | "nlcr"): Promise<void>;
   clearMonitor(): void;
   setBaud(baud: number): Promise<void>;
   togglePlotPause(): void;

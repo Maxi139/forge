@@ -137,7 +137,7 @@ export interface Backend {
   probeDevice(port: string): Promise<ChipProbe>;
   monitorStart(deviceId: string | null, port: string, baud: number): Promise<void>;
   monitorStop(): Promise<void>;
-  monitorWrite(text: string, ending: "none" | "nl" | "nlcr"): Promise<void>;
+  monitorWrite(text: string, ending: "none" | "nl" | "cr" | "nlcr"): Promise<void>;
   onMonitorLines(handler: (lines: MonitorLine[]) => void): Promise<Unsubscribe>;
   onMonitorState(handler: (s: MonitorState) => void): Promise<Unsubscribe>;
 

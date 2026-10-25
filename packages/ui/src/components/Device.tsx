@@ -12,7 +12,7 @@ export interface MonitorLine {
   text: string;
 }
 
-export type LineEnding = "none" | "nl" | "nlcr";
+export type LineEnding = "none" | "nl" | "cr" | "nlcr";
 
 export interface SerialMonitorProps {
   lines: MonitorLine[];
@@ -85,6 +85,27 @@ export function SerialMonitor({
   const [matchCase, setMatchCase] = useState(false);
   const [errorsOnly, setErrorsOnly] = useState(false);
   const out = useRef<HTMLDivElement>(null);
+  /** Gesendetes, ältestes zuerst. `cursor` zeigt beim Blättern darauf, sonst auf das Ende. */
+  const history = useRef<string[]>([]);
+  const cursor = useRef(0);
+  const draft = useRef("");
+
+  const submit = () => {
+    if (!input) return;
+    onSend?.(input, ending);
+    const h = history.current;
+    if (h[h.length - 1] !== input) h.push(input);
+    if (h.length > 100) h.shift();
+    cursor.current = h.length;
+    setInput("");
+  };
+  const browse = (dir: -1 | 1) => {
+    const h = history.current;
+    if (!h.length) return;
+    if (cursor.current === h.length) draft.current = input;
+    cursor.current = Math.min(h.length, Math.max(0, cursor.current + dir));
+    setInput(cursor.current === h.length ? draft.current : h[cursor.current]);
+  };
 
   const filtering = filterOpen && (query !== "" || errorsOnly);
   const shown = filtering ? filterLines(lines, { query, matchCase, errorsOnly }) : lines;
@@ -163,9 +184,11 @@ export function SerialMonitor({
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key !== "Enter" || !input) return;
-            onSend?.(input, ending);
-            setInput("");
+            if (e.key === "Enter") submit();
+            else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+              e.preventDefault();
+              browse(e.key === "ArrowUp" ? -1 : 1);
+            }
           }}
           placeholder="An das Board senden …"
           aria-label="Nachricht senden"
@@ -178,6 +201,7 @@ export function SerialMonitor({
           options={[
             { value: "none", label: "Kein Zeilenende" },
             { value: "nl", label: "NL" },
+            { value: "cr", label: "CR" },
             { value: "nlcr", label: "NL & CR" },
           ]}
         />

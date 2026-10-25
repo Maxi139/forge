@@ -122,6 +122,7 @@ pub fn monitor_write(state: State<AppState>, text: String, ending: String) -> Re
     let (monitor, _) = g.as_ref().ok_or("Der Monitor ist nicht verbunden.")?;
     let suffix = match ending.as_str() {
         "none" => "",
+        "cr" => "\r",
         "nlcr" => "\r\n",
         _ => "\n",
     };
