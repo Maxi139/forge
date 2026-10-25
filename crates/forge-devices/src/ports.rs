@@ -2,6 +2,13 @@ use crate::classify::{classify, mac_from_serial, Bridge};
 use serde::Serialize;
 use serialport::SerialPortType;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Transport {
+    Usb,
+    Network,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceInfo {
@@ -20,6 +27,36 @@ pub struct DeviceInfo {
     /// Passt zu einem ESP32.
     pub likely_esp: bool,
     pub mac: Option<String>,
+    pub transport: Transport,
+    /// Adresse eines Netzwerkgeräts.
+    pub host: Option<String>,
+    /// OTA-Port eines Netzwerkgeräts.
+    pub ota_port: Option<u16>,
+    /// Das Netzwerkgerät verlangt ein OTA-Passwort.
+    pub auth: bool,
+}
+
+impl DeviceInfo {
+    /// Ein Board im WLAN. `port` trägt den Hostnamen, damit die Anzeige etwas Lesbares hat.
+    pub fn from_network(d: &crate::ota::NetworkDevice) -> Self {
+        DeviceInfo {
+            id: format!("net:{}", d.name.to_lowercase()),
+            port: d.hostname.clone(),
+            vid: 0,
+            pid: 0,
+            serial: None,
+            product: d.board.clone(),
+            manufacturer: None,
+            bridge: Bridge::Network,
+            label: "ESP32 (WLAN)".into(),
+            likely_esp: true,
+            mac: None,
+            transport: Transport::Network,
+            host: Some(d.ip.to_string()),
+            ota_port: Some(d.port),
+            auth: d.auth,
+        }
+    }
 }
 
 /// Nur `cu.*`-Geräte sind zum Öffnen gedacht. `tty.*` blockiert beim Öffnen.
@@ -63,6 +100,10 @@ pub fn list_devices() -> Vec<DeviceInfo> {
                     label: label.into(),
                     likely_esp: likely,
                     mac,
+                    transport: Transport::Usb,
+                    host: None,
+                    ota_port: None,
+                    auth: false,
                 })
             }
             _ => None,

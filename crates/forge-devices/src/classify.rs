@@ -9,6 +9,8 @@ pub enum Bridge {
     Ch340,
     Ch9102,
     Ftdi,
+    /// Kein USB: ein Board im WLAN, das OTA-Updates anbietet.
+    Network,
     Other,
 }
 
