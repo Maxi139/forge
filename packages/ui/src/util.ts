@@ -43,3 +43,19 @@ export function formatBytes(b: number): string {
   if (b >= 1024) return `${(b / 1024).toFixed(1)} KB`;
   return `${b} B`;
 }
+
+export interface LineFilter {
+  query: string;
+  matchCase: boolean;
+  errorsOnly: boolean;
+}
+
+/** Zeilen des Monitors nach Text und Art. Kurze Zeilen mit leerer Suche bleiben alle erhalten. */
+export function filterLines<T extends { text: string; kind?: string }>(lines: T[], f: LineFilter): T[] {
+  const q = f.matchCase ? f.query : f.query.toLowerCase();
+  return lines.filter((l) => {
+    if (f.errorsOnly && l.kind !== "err") return false;
+    if (!q) return true;
+    return (f.matchCase ? l.text : l.text.toLowerCase()).includes(q);
+  });
+}

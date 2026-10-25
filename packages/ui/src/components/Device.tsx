@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
-import { cx, formatBytes } from "../util";
-import { Badge, Button, Kbd, Select, StatusDot, Toggle, type ConnectionState } from "./Controls";
+import { cx, filterLines, formatBytes } from "../util";
+import { Badge, Button, Input, Kbd, Select, StatusDot, Toggle, type ConnectionState } from "./Controls";
 import { Icon } from "./Icon";
 
 /* ---------- Serial Monitor ---------- */
@@ -77,11 +77,18 @@ export function SerialMonitor({
   const [ts, setTs] = useState(timestamps);
   const [auto, setAuto] = useState(true);
   const [ending, setEnding] = useState<LineEnding>("nl");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [matchCase, setMatchCase] = useState(false);
+  const [errorsOnly, setErrorsOnly] = useState(false);
   const out = useRef<HTMLDivElement>(null);
+
+  const filtering = filterOpen && (query !== "" || errorsOnly);
+  const shown = filtering ? filterLines(lines, { query, matchCase, errorsOnly }) : lines;
 
   useEffect(() => {
     if (auto && out.current) out.current.scrollTop = out.current.scrollHeight;
-  }, [lines.length, auto]);
+  }, [shown.length, auto]);
 
   return (
     <div className={cx("fg-monitor", className)} style={height ? { height } : undefined}>
@@ -91,6 +98,7 @@ export function SerialMonitor({
         <span className="fg-spacer" />
         <Toggle icon="clock" title="Zeitstempel" on={ts} onToggle={() => setTs(!ts)} />
         <Toggle icon="arrow-down" title="Autoscroll" on={auto} onToggle={() => setAuto(!auto)} />
+        <Toggle icon="search" title="Filter und Suche" on={filterOpen} onToggle={() => setFilterOpen(!filterOpen)} />
         <Select
           size="sm"
           mono
@@ -102,8 +110,29 @@ export function SerialMonitor({
         <Button variant="ghost" size="sm" icon="trash" aria-label="Ausgabe leeren" title="Ausgabe leeren" onClick={onClear} />
         {actions}
       </div>
+      {filterOpen ? (
+        <div className="fg-mon-filter">
+          <Input
+            size="sm"
+            mono
+            icon="search"
+            autoFocus
+            aria-label="Ausgabe filtern"
+            placeholder="Text filtern …"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <Toggle title="Groß-/Kleinschreibung beachten" on={matchCase} onToggle={() => setMatchCase(!matchCase)}>
+            Aa
+          </Toggle>
+          <Toggle title="Nur Fehlerzeilen" on={errorsOnly} onToggle={() => setErrorsOnly(!errorsOnly)}>
+            Nur Fehler
+          </Toggle>
+          <span className="fg-mon-count fg-mono">{filtering ? `${shown.length} von ${lines.length}` : `${lines.length} Zeilen`}</span>
+        </div>
+      ) : null}
       <div className="fg-mon-out" ref={out} role="log" aria-live="off">
-        {lines.map((l, i) => {
+        {shown.map((l, i) => {
           const kind = l.kind ?? "rx";
           return (
             <div key={l.id ?? i} className={`fg-mon-line fg-mon-line--${kind}`}>
