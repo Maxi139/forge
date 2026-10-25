@@ -534,6 +534,22 @@ export const de = {
     symbols: "Größte Symbole",
     failed: "Die Aufschlüsselung ist nicht verfügbar",
   },
+
+  about: {
+    section: "Info",
+    version: (v: string) => `Version ${v}`,
+    copyright: "© 2026 Maximilian Schmidt. Veröffentlicht unter der MIT-Lizenz.",
+    project: "Projektseite",
+    licenses: "Lizenzen von Drittanbietern",
+    licensesText: "Forge nutzt freie Software und Schriften. Hier stehen ihre Lizenzen.",
+    show: "Lizenzen anzeigen",
+    hide: "Lizenzen ausblenden",
+    loading: "Lade Lizenzen …",
+    filter: "Paket suchen",
+    groups: { fonts: "Schriften", rust: "Rust-Crates", npm: "npm-Pakete" },
+    noText: "Der Lizenztext liegt dem Paket nicht bei. Die Lizenz ist laut Paketangaben:",
+    none: "Kein Paket gefunden",
+  },
 };
 
 export type Strings = typeof de;
