@@ -452,6 +452,9 @@ export function createMockHardware(readProject: () => Record<string, string>, op
         const volts = 1.65 + Math.sin(x * 1.3) * 0.9 + Math.sin(x * 4.1) * 0.18 + (Math.random() - 0.5) * 0.12;
         const raw = Math.round((volts / 3.3) * 4095);
         lines.emit([{ id: ++lineId, t: Date.now() - started, kind: "rx", text: `raw:${raw} volts:${volts.toFixed(2)}` }]);
+        const temp = 23 + Math.sin(x / 3) * 1.5;
+        const hum = 51 + Math.cos(x / 5) * 6;
+        lines.emit([{ id: ++lineId, t: Date.now() - started, kind: "rx", text: `temp:${temp.toFixed(1)} hum:${hum.toFixed(1)} light:${Math.round(800 + Math.sin(x) * 60)} pres:${(1013 + Math.sin(x / 9) * 2).toFixed(1)} gyro:${(Math.sin(x * 2) * 3).toFixed(2)} tilt:${(Math.cos(x * 1.7) * 8).toFixed(1)}` }]);
       }, 120);
     },
     monitorStop: async () => {

@@ -1,4 +1,4 @@
-import { SerialMonitor } from "@forge/ui";
+import { Plotter, SerialMonitor } from "@forge/ui";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -74,5 +74,36 @@ describe("SerialMonitor", () => {
     render(<SerialMonitor lines={[{ id: 1, text: "Backtrace: 0x1" }]} canDecode={() => true} onDecode={onDecode} />);
     fireEvent.click(screen.getByText("Auflösen"));
     await waitFor(() => expect(screen.getByText("Es gibt noch keinen Build.")).toBeInTheDocument());
+  });
+});
+
+describe("Plotter", () => {
+  const ramp = (from: number) => Array.from({ length: 30 }, (_, i) => from + i);
+  const eight = Array.from({ length: 8 }, (_, i) => ({ name: `s${i + 1}`, values: ramp(100 + i) }));
+
+  it("zeigt alle acht Serien und blendet sie einzeln aus", () => {
+    const { container } = render(<Plotter series={eight} window={30} />);
+    expect(container.querySelectorAll("path.fg-plot-line")).toHaveLength(8);
+    fireEvent.click(screen.getByText("s3"));
+    expect(container.querySelectorAll("path.fg-plot-line")).toHaveLength(7);
+    expect(container.querySelector("path.fg-pl-3")).toBeNull();
+  });
+
+  it("zwingt die y-Achse nicht auf null und nimmt einen festen Bereich an", () => {
+    render(<Plotter series={[{ name: "a", values: ramp(100) }]} window={30} />);
+    const labels = () => [...document.querySelectorAll(".fg-plot-y")].map((e) => Number(e.textContent));
+    expect(Math.min(...labels())).toBeGreaterThan(90);
+    fireEvent.change(screen.getByLabelText("y von"), { target: { value: "0" } });
+    fireEvent.change(screen.getByLabelText("y bis"), { target: { value: "200" } });
+    expect(labels()).toEqual([0, 50, 100, 150, 200]);
+  });
+
+  it("zoomt und exportiert CSV", () => {
+    const onExport = vi.fn();
+    render(<Plotter series={[{ name: "a", values: ramp(1) }]} window={30} onExport={onExport} />);
+    fireEvent.click(screen.getByLabelText("Weniger Werte zeigen (hineinzoomen)"));
+    expect(screen.getByText(/^−21/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText("CSV"));
+    expect(onExport.mock.calls[0][0]).toMatch(/^Nr,a\n1,1\n/);
   });
 });

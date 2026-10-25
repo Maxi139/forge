@@ -280,6 +280,8 @@ export const de = {
     reconnecting: (reason: string) => `Verbinde neu: ${reason}`,
     exportName: "monitor-log.txt",
     exported: (path: string) => `Log gespeichert: ${path}`,
+    plotName: "plotter.csv",
+    plotExported: (path: string) => `Werte gespeichert: ${path}`,
   },
 
   libraries: {

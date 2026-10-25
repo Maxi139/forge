@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterLines, formatLog } from "./util";
+import { filterLines, formatLog, plotCsv } from "./util";
 
 const lines = [
   { text: "I (12) wifi: Verbunden", kind: "rx" },
@@ -30,5 +30,11 @@ describe("formatLog", () => {
   });
   it("lässt Zeitstempel weg", () => {
     expect(formatLog([{ t: 5, text: "a" }, { text: "b" }], false)).toBe("a\nb");
+  });
+});
+
+describe("plotCsv", () => {
+  it("richtet ungleich lange Serien am Ende aus", () => {
+    expect(plotCsv([{ name: "a", values: [1, 2, 3] }, { name: "b,x", values: [9, 8] }])).toBe('Nr,a,"b,x"\n1,1,\n2,2,9\n3,3,8\n');
   });
 });

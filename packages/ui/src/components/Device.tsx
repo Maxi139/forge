@@ -1,5 +1,5 @@
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
-import { cx, filterLines, formatBytes, formatLog } from "../util";
+import { Fragment, useEffect, useRef, useState, type ReactNode, type WheelEvent } from "react";
+import { cx, filterLines, formatBytes, formatLog, plotCsv } from "../util";
 import { Badge, Button, Input, Kbd, Select, StatusDot, Toggle, type ConnectionState } from "./Controls";
 import { Icon } from "./Icon";
 
@@ -302,79 +302,174 @@ export interface PlotSeries {
 
 export interface PlotterProps {
   series: PlotSeries[];
+  /** Fester y-Bereich als Voreinstellung. Ohne Angabe passt er sich den sichtbaren Werten an. */
   min?: number;
   max?: number;
+  /** Zahl der gezeigten Werte beim Start. */
   window?: number;
   interval?: number;
   windowLabel?: string;
   paused?: boolean;
   onPause?(): void;
+  /** Gibt die Werte als CSV zum Speichern heraus. */
+  onExport?(csv: string): void;
   actions?: ReactNode;
   height?: number;
   className?: string;
 }
 
-export function Plotter({ series, min: fixedMin, max: fixedMax, window: n = 160, interval = 50, windowLabel, paused, onPause, actions, height, className }: PlotterProps) {
+const MIN_WINDOW = 10;
+
+function parseNum(s: string): number | null {
+  const n = Number(s.replace(",", "."));
+  return s.trim() !== "" && Number.isFinite(n) ? n : null;
+}
+
+export function Plotter({ series, min: fixedMin, max: fixedMax, window: initial = 160, interval = 50, windowLabel, paused, onPause, onExport, actions, height, className }: PlotterProps) {
   const H = 100;
   const W = 100;
-  const all = series.flatMap((s) => s.values.slice(-n));
-  const min = fixedMin ?? Math.min(0, ...all);
-  let max = fixedMax ?? Math.max(1, ...all);
-  if (max === min) max = min + 1;
+  const total = series.reduce((m, s) => Math.max(m, s.values.length), 0);
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [span, setSpan] = useState(initial);
+  /** Wie viele Werte das Fenster vom aktuellen Ende entfernt ist. 0 folgt live. */
+  const [offset, setOffset] = useState(0);
+  const [lo, setLo] = useState(fixedMin != null ? String(fixedMin) : "");
+  const [hi, setHi] = useState(fixedMax != null ? String(fixedMax) : "");
+  const area = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ x: number; offset: number } | null>(null);
+  const prevTotal = useRef(total);
+
+  const n = Math.max(MIN_WINDOW, Math.min(span, Math.max(total, MIN_WINDOW)));
+  const maxOffset = Math.max(0, total - n);
+  const off = Math.min(offset, maxOffset);
+
+  // Wer zurückgeblättert hat, behält seine Stelle, auch wenn neue Werte kommen.
+  useEffect(() => {
+    const added = total - prevTotal.current;
+    prevTotal.current = total;
+    if (added > 0) setOffset((o) => (o > 0 ? o + added : o));
+  }, [total]);
+
+  const zoom = (factor: number) => setSpan(Math.round(Math.max(MIN_WINDOW, Math.min(Math.max(total, 200) * 2, n * factor))));
+  const onWheel = (e: WheelEvent) => {
+    if (e.deltaY) zoom(e.deltaY < 0 ? 0.8 : 1.25);
+  };
+
+  const slice = (s: PlotSeries) => {
+    const end = s.values.length - off;
+    return s.values.slice(Math.max(0, end - n), end);
+  };
+  const visible = series.map((s, i) => ({ s, i })).filter(({ s }) => !hidden.has(s.name));
+  const all = visible.flatMap(({ s }) => slice(s));
+
+  const fixLo = parseNum(lo);
+  const fixHi = parseNum(hi);
+  let min = fixLo ?? (all.length ? Math.min(...all) : 0);
+  let max = fixHi ?? (all.length ? Math.max(...all) : 1);
+  if (fixLo == null && fixHi == null) {
+    const pad = (max - min) * 0.08 || 0.5;
+    min -= pad;
+    max += pad;
+  }
+  if (max <= min) max = min + 1;
   const y = (v: number) => H - ((v - min) / (max - min)) * H;
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => min + (max - min) * f);
   const fmt = (v: number) => {
     const a = Math.abs(max - min);
     return a >= 100 ? String(Math.round(v)) : a >= 10 ? v.toFixed(1) : v.toFixed(2);
   };
+  const toggle = (name: string) =>
+    setHidden((h) => {
+      const next = new Set(h);
+      if (!next.delete(name)) next.add(name);
+      return next;
+    });
 
   return (
     <div className={cx("fg-plot", paused && "is-paused", className)} style={height ? { height } : undefined}>
       <div className="fg-plot-head">
         {series.map((s, i) => {
           const last = s.values[s.values.length - 1];
+          const isOff = hidden.has(s.name);
           return (
-            <span key={s.name} className="fg-legend">
+            <button key={s.name} type="button" className={cx("fg-legend", isOff && "is-off")} aria-pressed={!isOff} title={isOff ? "Einblenden" : "Ausblenden"} onClick={() => toggle(s.name)}>
               <i className={`fg-sw fg-sw-${i + 1}`} />
               {s.name}
               <span className="fg-mono">{last == null ? "" : fmt(last) + (s.unit ? ` ${s.unit}` : "")}</span>
-            </span>
+            </button>
           );
         })}
         <span className="fg-spacer" />
+        <span className="fg-plot-tools">
+          <input className="fg-plot-num" inputMode="decimal" aria-label="y von" placeholder="y min" title="Fester y-Bereich, leer für automatisch" value={lo} onChange={(e) => setLo(e.target.value)} />
+          <input className="fg-plot-num" inputMode="decimal" aria-label="y bis" placeholder="y max" title="Fester y-Bereich, leer für automatisch" value={hi} onChange={(e) => setHi(e.target.value)} />
+          <Button variant="ghost" size="sm" aria-label="Weniger Werte zeigen (hineinzoomen)" title="Hineinzoomen" onClick={() => zoom(0.7)}>
+            +
+          </Button>
+          <Button variant="ghost" size="sm" aria-label="Mehr Werte zeigen (herauszoomen)" title="Herauszoomen" onClick={() => zoom(1.4)}>
+            −
+          </Button>
+          {off > 0 ? (
+            <Button variant="ghost" size="sm" icon="arrow-down" onClick={() => setOffset(0)}>
+              Live
+            </Button>
+          ) : null}
+        </span>
         {actions}
+        {onExport ? (
+          <Button variant="ghost" size="sm" icon="file" title="Werte als CSV speichern" disabled={total === 0} onClick={() => onExport(plotCsv(series))}>
+            CSV
+          </Button>
+        ) : null}
         {onPause ? (
           <Button variant="ghost" size="sm" icon={paused ? "play" : "pause"} onClick={onPause}>
             {paused ? "Weiter" : "Pause"}
           </Button>
         ) : null}
       </div>
-      <div className="fg-plot-area">
+      <div
+        className={cx("fg-plot-area", off > 0 && "is-panned")}
+        ref={area}
+        onWheel={onWheel}
+        onPointerDown={(e) => {
+          drag.current = { x: e.clientX, offset: off };
+          e.currentTarget.setPointerCapture?.(e.pointerId);
+        }}
+        onPointerMove={(e) => {
+          const d = drag.current;
+          const w = area.current?.clientWidth;
+          if (!d || !w) return;
+          const moved = Math.round(((e.clientX - d.x) / w) * n);
+          setOffset(Math.max(0, Math.min(maxOffset, d.offset + moved)));
+        }}
+        onPointerUp={() => (drag.current = null)}
+        onPointerCancel={() => (drag.current = null)}
+      >
         {ticks.map((t, i) => (
           <span key={i} className="fg-plot-y" style={{ top: `${100 - i * 25}%` }}>
             {fmt(t)}
           </span>
         ))}
-        <span className="fg-plot-x" style={{ left: 0 }}>{`−${windowLabel ?? `${((n * interval) / 1000).toFixed(0)} s`}`}</span>
-        <span className="fg-plot-x" style={{ right: 0 }}>jetzt</span>
+        <span className="fg-plot-x" style={{ left: 0 }}>{`−${off + n} ${windowLabel ?? `Werte (${(((off + n) * interval) / 1000).toFixed(0)} s)`}`}</span>
+        <span className="fg-plot-x" style={{ right: 0 }}>{off > 0 ? `−${off}` : "jetzt"}</span>
         <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden>
           {ticks.map((t, i) => (
-            <line key={i} className={cx("fg-plot-grid", t === 0 && "fg-plot-zero")} x1={0} x2={W} y1={y(t)} y2={y(t)} />
+            <line key={i} className={cx("fg-plot-grid", Math.abs(t) < (max - min) / 1000 && "fg-plot-zero")} x1={0} x2={W} y1={y(t)} y2={y(t)} />
           ))}
-          {series.map((s, i) => {
-            const v = s.values.slice(-n);
-            const off = n - v.length;
-            const d = v
-              .map((val, j) => `${j ? "L" : "M"}${(((j + off) / (n - 1)) * W).toFixed(2)} ${y(val).toFixed(2)}`)
-              .join("");
+          {visible.map(({ s, i }) => {
+            const v = slice(s);
+            const start = n - v.length;
+            const d = v.map((val, j) => `${j ? "L" : "M"}${(((j + start) / (n - 1)) * W).toFixed(2)} ${y(val).toFixed(2)}`).join("");
             return <path key={s.name} className={`fg-plot-line fg-pl-${i + 1}`} d={d} />;
           })}
         </svg>
         <span className="fg-plot-now" />
-        {series.map((s, i) => {
-          const last = s.values[s.values.length - 1];
-          return last == null ? null : <span key={s.name} className={`fg-plot-head-dot d-${i + 1}`} style={{ top: `${y(last)}%` }} />;
-        })}
+        {off === 0
+          ? visible.map(({ s, i }) => {
+              const last = s.values[s.values.length - 1];
+              return last == null ? null : <span key={s.name} className={`fg-plot-head-dot d-${i + 1}`} style={{ top: `${Math.max(0, Math.min(100, y(last)))}%` }} />;
+            })
+          : null}
       </div>
     </div>
   );

@@ -18,10 +18,10 @@ function connection(state: ReturnType<typeof useHardware.getState>["monitor"]["s
   }
 }
 
-async function exportLog(text: string) {
+async function exportText(name: string, text: string, done: (path: string) => string) {
   try {
-    const path = await backend().saveTextAs(t.monitor.exportName, text);
-    if (path) useStore.getState().toast({ kind: "success", title: t.monitor.exported(path) });
+    const path = await backend().saveTextAs(name, text);
+    if (path) useStore.getState().toast({ kind: "success", title: done(path) });
   } catch (e) {
     useStore.getState().toast({ kind: "error", title: t.errors.generic, message: e instanceof Error ? e.message : String(e) });
   }
@@ -61,7 +61,7 @@ export function MonitorView() {
       canDecode={(l) => l.kind !== "tx" && isDecodable(l.text)}
       onDecode={(l) => decodeLine(l.text)}
       onOpenFrame={openFrame}
-      onExport={(text) => void exportLog(text)}
+      onExport={(text) => void exportText(t.monitor.exportName, text, t.monitor.exported)}
       actions={
         monitor.open ? (
           <Button variant="ghost" size="sm" icon="pause" aria-label="Monitor trennen" title="Monitor trennen" onClick={() => void stopMonitor()} />
@@ -83,5 +83,5 @@ export function PlotterView() {
 
   if (!device) return <EmptyState icon="plot" title={t.monitor.noDevice} text={t.monitor.noDeviceText} pattern={false} />;
   if (plot.length === 0) return <EmptyState icon="plot" title={t.monitor.plotterEmpty} text={t.monitor.plotterEmptyText} pattern={false} />;
-  return <Plotter series={plot.slice(0, 4).map((p) => ({ name: p.name, values: p.values }))} window={200} windowLabel="letzte Werte" paused={paused} onPause={toggle} />;
+  return <Plotter series={plot} window={200} windowLabel="Werte" paused={paused} onPause={toggle} onExport={(csv) => void exportText(t.monitor.plotName, csv, t.monitor.plotExported)} />;
 }

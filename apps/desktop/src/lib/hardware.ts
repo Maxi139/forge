@@ -40,7 +40,7 @@ export interface PlotSeriesData {
 }
 
 const MAX_LINES = 2000;
-const MAX_SAMPLES = 300;
+const MAX_SAMPLES = 2000;
 const MAX_SERIES = 8;
 
 const DEVICE_KEY = (project: string) => `forge.device.${project}`;
