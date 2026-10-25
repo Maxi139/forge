@@ -1,0 +1,15 @@
+node_modules
+target
+dist
+.DS_Store
+.forge
+*.log
+apps/quicklook/build
+apps/desktop/src-tauri/gen/schemas
+.env
+.env.*
+*.p12
+*.pem
+.claude/settings.local.json
+*.tsbuildinfo
+coverage

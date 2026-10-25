@@ -1,0 +1,144 @@
+mod commands;
+mod mcp;
+mod menu;
+mod state;
+mod store;
+mod watch;
+
+use commands::{
+    ai, boardcfg, build, devices, files, libraries, lsp, package, project, recents, search,
+    secrets, toolchain,
+};
+use tauri::{Emitter, Manager};
+
+/// Die stdio-Brücke für Claude Code. Läuft ohne Fenster.
+pub fn mcp_bridge(info: Option<std::path::PathBuf>) {
+    mcp::bridge(info);
+}
+
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .manage(state::AppState::default())
+        .setup(|app| {
+            {
+                let state = app.state::<state::AppState>();
+                if let Ok(dir) = app.path().app_cache_dir() {
+                    *state.toolchain.cache_base.lock().unwrap() = Some(dir);
+                }
+                devices::start_device_watch(app.handle(), &state);
+                mcp::start_if_enabled(app.handle());
+                package::register_quicklook(app.handle());
+            }
+            // Pfad aus der Kommandozeile: `forge-desktop /pfad/zum/projekt`.
+            if let Some(arg) = std::env::args()
+                .nth(1)
+                .map(std::path::PathBuf::from)
+                .filter(|p| p.exists())
+            {
+                *app.state::<state::AppState>().pending_open.lock().unwrap() = Some(arg);
+            }
+            Ok(())
+        })
+        .menu(menu::build)
+        .on_menu_event(menu::on_event)
+        .invoke_handler(tauri::generate_handler![
+            project::default_projects_dir,
+            project::project_open,
+            project::project_create,
+            project::sketch_create,
+            project::project_convert,
+            project::project_rename,
+            project::menu_set_enabled,
+            project::project_tree,
+            project::project_validate_name,
+            project::project_close,
+            project::take_pending_open,
+            files::file_read,
+            files::file_write,
+            files::file_create,
+            files::file_rename,
+            files::file_trash,
+            boardcfg::project_set_board,
+            toolchain::toolchain_status,
+            toolchain::toolchain_setup,
+            toolchain::boards_list,
+            toolchain::fbuild_status,
+            toolchain::fbuild_install,
+            toolchain::fbuild_set_enabled,
+            toolchain::board_options,
+            build::syntax_run,
+            build::check_run,
+            build::analysis_run,
+            build::build_run,
+            build::build_cancel,
+            build::flash_run,
+            devices::devices_list,
+            devices::device_probe,
+            devices::monitor_start,
+            devices::monitor_stop,
+            devices::monitor_write,
+            ai::ai_state,
+            ai::ai_configure,
+            ai::ai_set_project_enabled,
+            ai::ai_models,
+            ai::ai_check,
+            ai::ai_threads,
+            ai::ai_thread_reply,
+            ai::ai_thread_close,
+            ai::ai_thread_reopen,
+            ai::ai_fix,
+            ai::ai_task,
+            mcp::mcp_status,
+            mcp::mcp_set_enabled,
+            mcp::mcp_connect,
+            mcp::mcp_open_in_claude,
+            search::search_run,
+            lsp::lsp_sync,
+            lsp::lsp_complete,
+            lsp::lsp_hover,
+            lsp::lsp_definition,
+            lsp::lsp_signature,
+            lsp::lsp_tokens,
+            lsp::file_read_external,
+            secrets::secrets_list,
+            secrets::secret_set,
+            secrets::secret_remove,
+            libraries::libraries_installed,
+            libraries::libraries_search,
+            libraries::library_install,
+            libraries::library_uninstall,
+            libraries::library_upgrade,
+            package::package_needs,
+            package::package_install_needs,
+            package::package_save_as,
+            package::package_export_folder,
+            recents::recent_list,
+            recents::recent_push,
+            recents::recent_remove,
+        ])
+        .build(tauri::generate_context!())
+        .expect("Forge konnte nicht gestartet werden")
+        .run(|app, event| {
+            // Finder, `open -a Forge Ordner` und Drag & Drop auf das Dock-Symbol.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = &event {
+                for url in urls {
+                    if let Ok(path) = url.to_file_path() {
+                        let state = app.state::<state::AppState>();
+                        *state.pending_open.lock().unwrap() = Some(path.clone());
+                        let _ = app.emit("open-path", path);
+                    }
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (&app, &event);
+            // Offene Änderungen gehören in die Projektdatei, bevor die App endet.
+            if matches!(
+                event,
+                tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+            ) {
+                tauri::async_runtime::block_on(package::flush(app));
+            }
+        });
+}

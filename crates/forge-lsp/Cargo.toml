@@ -1,0 +1,16 @@
+[package]
+name = "forge-lsp"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+forge-analysis = { path = "../forge-analysis" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "process", "io-util", "sync", "time", "macros", "fs"] }
+
+[dev-dependencies]
+tempfile = "3"
+forge-toolchain = { path = "../forge-toolchain" }

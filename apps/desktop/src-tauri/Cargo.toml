@@ -1,0 +1,39 @@
+[package]
+name = "forge-desktop"
+version = "0.1.0"
+edition = "2021"
+description = "Forge: ESP32-IDE für macOS"
+publish = false
+
+[lib]
+name = "forge_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+forge-project = { path = "../../../crates/forge-project" }
+trash = "5"
+notify = "8"
+forge-core = { path = "../../../crates/forge-core" }
+forge-analysis = { path = "../../../crates/forge-analysis" }
+forge-toolchain = { path = "../../../crates/forge-toolchain" }
+forge-devices = { path = "../../../crates/forge-devices" }
+tokio = { version = "1", features = ["rt-multi-thread", "process", "io-util", "sync", "time", "macros", "fs"] }
+regex = "1"
+forge-secrets = { path = "../../../crates/forge-secrets" }
+sha2 = "0.10"
+forge-ai = { path = "../../../crates/forge-ai" }
+forge-mcp = { path = "../../../crates/forge-mcp" }
+async-trait = "0.1"
+rand = "0.8"
+forge-lsp = { path = "../../../crates/forge-lsp" }
+forge-package = { path = "../../../crates/forge-package" }
+
+[dev-dependencies]
+tempfile = "3"

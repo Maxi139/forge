@@ -1,0 +1,13 @@
+pub mod ai;
+pub mod boardcfg;
+pub mod build;
+pub mod devices;
+pub mod files;
+pub mod libraries;
+pub mod lsp;
+pub mod package;
+pub mod project;
+pub mod recents;
+pub mod search;
+pub mod secrets;
+pub mod toolchain;

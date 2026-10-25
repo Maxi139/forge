@@ -1,0 +1,199 @@
+<!-- @dsCard group="Showcase" height=900 width=1320 page subtitle="Die komplette IDE — Flash klicken oder ⌘K drücken" -->
+<!doctype html>
+<html lang="de">
+<head><meta charset="utf-8"><title>IDE-Layout — Forge</title>
+<style>
+  html, body { margin: 0; height: 100%; background: var(--bg); }
+  .ide { position: relative; display: grid; grid-template-rows: var(--size-titlebar) minmax(0, 1fr) var(--size-statusbar); grid-template-columns: minmax(0, 1fr); width: 1320px; height: 900px; overflow: hidden; background: var(--bg); }
+  .main { display: flex; min-height: 0; }
+  .center { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--surface); }
+  .editor { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .editor .fg-editor-wrap { flex: 1; min-height: 0; }
+  .bottom { height: 248px; flex: none; display: flex; flex-direction: column; border-top: 1px solid var(--line); background: var(--surface-panel); }
+  .bottom-body { flex: 1; min-height: 0; display: flex; }
+  .bottom-body > * { flex: 1; min-width: 0; }
+  .bottom-body > .fg-monitor { flex: 1.25; }
+  .bottom-body > * + * { border-left: 1px solid var(--line); }
+  .device { width: 312px; flex: none; border-left: 1px solid var(--line); }
+  .device .fg-panel-body { padding: 0 14px 16px; display: flex; flex-direction: column; gap: 16px; }
+  .board-card { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--radius-md); background: var(--surface); border: 1px solid var(--line); }
+  .board-card b { display: block; font-weight: 550; color: var(--ink); }
+  .board-card small { display: block; font-family: var(--font-mono); font-size: 11px; color: var(--ink-muted); }
+  .board-card .ic { display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--radius-sm); background: var(--surface-active); color: var(--ink-muted); }
+  .sec { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: -6px; }
+  .device .fg-pin-grid { grid-auto-rows: 15px; font-size: 10.5px; }
+  .device .fg-pad { width: 9px; height: 9px; border-width: 2px; }
+  .device .fg-board-mod { height: 96px; }
+  .device .fg-pin-fn { font-size: 9.5px; height: 13px; line-height: 13px; }
+  .toasts { position: absolute; right: 328px; bottom: 284px; z-index: 10; }
+  .overlay { position: absolute; inset: 0; z-index: 20; display: flex; justify-content: center; padding-top: 72px; }
+</style></head>
+<body>
+<div id="root"></div>
+<script>
+var F = window.Forge, h = React.createElement, useState = React.useState, useEffect = React.useEffect, useRef = React.useRef;
+var SKETCH = [
+  '#include <Adafruit_NeoPixel.h>',
+  '',
+  '#define LED_PIN    48',
+  '#define NUM_LEDS   1',
+  '#define SENSOR_PIN 4',
+  '',
+  '// Onboard-RGB-LED des DevKitC-1',
+  'Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);',
+  '',
+  'void setup() {',
+  '  Serial.begin(115200);',
+  '  strip.begin();',
+  '  strip.setBrightness(40);',
+  '}',
+  '',
+  'void loop() {',
+  '  int raw = analogRead(SENSOR_PIN);',
+  '  float volts = raw * 3.3f / 4095.0f;',
+  '  Serial.printf("raw:%d volts:%.2f\\n", raw, volts);',
+  '  strip.setPixelColor(0, strip.Color(map(raw, 0, 4095, 0, 255), 40, 0));',
+  '  strip.show();',
+  '  delay(50)',
+  '}'
+];
+var FIXED = SKETCH.slice(); FIXED[21] = '  delay(50);';
+var NODES = [
+  { name: 'neopixel-sensor', open: true, children: [
+    { name: 'sketch.ino', icon: 'file-code', status: 'error', badge: 1 },
+    { name: 'config.h', icon: 'file-code', status: 'modified', badge: 'M' },
+    { name: 'sensor.cpp', icon: 'file-code' },
+    { name: 'sensor.h', icon: 'file-code' },
+    { name: 'data', children: [{ name: 'index.html' }, { name: 'style.css' }] },
+    { name: 'partitions.csv', icon: 'partition' },
+    { name: 'forge.toml', icon: 'settings' }] },
+  { name: 'libraries', children: [{ name: 'Adafruit_NeoPixel' }, { name: 'ArduinoJson' }] }];
+var COMMANDS = [
+  { id: 'flash', group: 'Zuletzt', label: 'Kompilieren und flashen', icon: 'flash', shortcut: ['⌘', 'U'] },
+  { id: 'fix', group: 'Zuletzt', label: "Fehler beheben: ';' einfügen", icon: 'check' },
+  { id: 'mon', group: 'Zuletzt', label: 'Seriellen Monitor öffnen', icon: 'serial', shortcut: ['⌘', '⇧', 'M'] },
+  { id: 'board', group: 'Board', label: 'Board wählen …', icon: 'chip', hint: 'ESP32-S3' },
+  { id: 'port', group: 'Board', label: 'Port wählen …', icon: 'usb', hint: 'usbmodem1101' },
+  { id: 'part', group: 'Board', label: 'Partitionsschema ändern …', icon: 'partition' },
+  { id: 'lib', group: 'Bibliotheken', label: 'Bibliothek installieren …', icon: 'library' },
+  { id: 'theme', group: 'Ansicht', label: 'Hell/Dunkel umschalten', icon: 'settings' }];
+var STAGES_DETAIL = ['Kompiliere sketch.ino · 31 Dateien', 'Linke firmware.elf', 'Verbinde mit ESP32-S3 · 921600 baud', 'Lösche 0x10000 – 0xC0000', 'Schreibe 0x10000', 'Prüfe Hash'];
+
+function App() {
+  var code = useState(SKETCH), phase = useState('idle'), stage = useState({ st: 0, p: 0 }), toasts = useState([]), pal = useState(false);
+  var mon = useState([{ id: 0, t: 40, kind: 'sys', text: '— verbunden mit /dev/cu.usbmodem1101 @ 115200 —' }]);
+  var plot = useState({ v: [], a: [] });
+  var t0 = useRef(1200), idc = useRef(1);
+  var fixed = code[0] === FIXED;
+  var diags = fixed ? [] : [{ line: 22, from: 10, to: 11, severity: 'error', message: "';' erwartet vor '}'" }];
+  var running = phase[0] === 'compiling' || phase[0] === 'flashing';
+
+  useEffect(function () {
+    var t = setInterval(function () {
+      if (running) return;
+      t0.current += 120;
+      var x = Date.now() / 1000;
+      var volts = 1.65 + Math.sin(x * 1.3) * .9 + Math.sin(x * 4.1) * .18 + (Math.random() - .5) * .12;
+      var raw = Math.round(volts / 3.3 * 4095);
+      plot[1](function (d) { var v = d.v.concat([volts]).slice(-120); var w = v.slice(-10); return { v: v, a: d.a.concat([w.reduce(function (a, b) { return a + b; }, 0) / w.length]).slice(-120) }; });
+      if (Math.random() < .5) mon[1](function (ls) { return ls.concat([{ id: idc.current++, t: t0.current, kind: 'rx', text: 'raw:' + raw + ' volts:' + volts.toFixed(2) }]).slice(-60); });
+    }, 120);
+    return function () { clearInterval(t); };
+  }, [running]);
+
+  useEffect(function () {
+    function k(e) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); pal[1](true); }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'u') { e.preventDefault(); flash(); }
+      if (e.key === 'Escape') pal[1](false);
+    }
+    window.addEventListener('keydown', k);
+    return function () { window.removeEventListener('keydown', k); };
+  });
+
+  function toast(t) { var id = idc.current++; toasts[1](function (ts) { return ts.filter(function (x) { return x.kind !== 'progress'; }).concat([Object.assign({ id: id }, t)]).slice(-3); }); return id; }
+  function drop(id) { toasts[1](function (ts) { return ts.filter(function (x) { return x.id !== id; }); }); }
+
+  function flash() {
+    if (running) return;
+    phase[1]('compiling'); stage[1]({ st: 0, p: 0 });
+    var st = 0, p = 0;
+    var timer = setInterval(function () {
+      p += st === 4 ? .07 : .25;
+      if (p >= 1) { st++; p = 0; }
+      if (st === 1 && p === 0 && !fixed) {
+        clearInterval(timer); phase[1]('error');
+        stage[1]({ st: 0, p: 1 });
+        toast({ kind: 'error', title: 'Kompilieren fehlgeschlagen', message: "sketch.ino, Zeile 22: ';' erwartet vor '}'.", fix: true });
+        return;
+      }
+      if (st >= 2) phase[1]('flashing');
+      if (st >= 6) {
+        clearInterval(timer); phase[1]('idle');
+        stage[1]({ st: 6, p: 0 });
+        mon[1](function (ls) { return ls.concat([{ id: idc.current++, t: t0.current, kind: 'sys', text: '— Board neu gestartet —' }]); });
+        toast({ kind: 'success', title: 'Flash abgeschlossen', message: '742 KB in 8.4 s geschrieben und geprüft.' });
+        return;
+      }
+      stage[1]({ st: st, p: p });
+    }, 180);
+  }
+
+  function run(it) {
+    pal[1](false);
+    if (it.id === 'flash') flash();
+    if (it.id === 'fix') code[1](FIXED);
+    if (it.id === 'theme') { var r = document.documentElement; r.setAttribute('data-theme', r.getAttribute('data-theme') === 'light' ? 'dark' : 'light'); }
+  }
+
+  var s = stage[0], total = s.st >= 6 ? 1 : (s.st + s.p) / 6;
+  var progToast = running ? h(F.Toast, { key: 'prog', kind: 'progress', title: phase[0] === 'compiling' ? 'Kompiliere neopixel-sensor' : 'Flashe auf ESP32-S3', message: STAGES_DETAIL[Math.min(s.st, 5)], progress: total }) : null;
+
+  return h('div', { className: 'ide' },
+    h(F.TitleBar, { project: 'neopixel-sensor', board: 'ESP32-S3', port: 'usbmodem1101', connection: running ? phase[0] : 'connected', phase: running ? phase[0] : 'idle', onFlash: flash, onBuild: flash, onSearch: function () { pal[1](true); } }),
+    h('div', { className: 'main' },
+      h(F.Sidebar, { nodes: NODES, defaultSelected: '/neopixel-sensor/sketch.ino',
+        activity: [{ id: 'files', icon: 'files', label: 'Explorer' }, { id: 'search', icon: 'search', label: 'Suche' }, { id: 'library', icon: 'library', label: 'Bibliotheken', badge: 2 }, { id: 'device', icon: 'device', label: 'Gerät' }, { id: 'plot', icon: 'plot', label: 'Plotter' }],
+        actions: [h(F.Button, { key: 1, variant: 'ghost', size: 'sm', icon: 'plus', 'aria-label': 'Neue Datei' }), h(F.Button, { key: 2, variant: 'ghost', size: 'sm', icon: 'more', 'aria-label': 'Mehr' })] }),
+      h('div', { className: 'center' },
+        h('div', { className: 'editor' },
+          h(F.Tabs, { variant: 'editor', defaultValue: 'ino', items: [
+            { id: 'ino', label: 'sketch.ino', icon: 'file-code', problems: !fixed, count: fixed ? undefined : 1 },
+            { id: 'cfg', label: 'config.h', icon: 'file-code', dirty: true },
+            { id: 'sen', label: 'sensor.cpp', icon: 'file-code' }],
+            actions: h(F.Button, { variant: 'ghost', size: 'sm', icon: 'split', 'aria-label': 'Editor teilen' }) }),
+          h(F.CodeEditor, { code: code[0].join('\n'), diagnostics: diags, breadcrumbs: ['neopixel-sensor', 'sketch.ino', 'loop()'], cursor: { line: 22, col: fixed ? 12 : 11 } })),
+        h('div', { className: 'bottom' },
+          h(F.Tabs, { variant: 'panel', defaultValue: 'mon', items: [
+            { id: 'mon', label: 'Monitor', icon: 'serial' }, { id: 'plot', label: 'Plotter', icon: 'plot' },
+            { id: 'prob', label: 'Probleme', count: fixed ? 0 : 1 }, { id: 'out', label: 'Ausgabe' }],
+            actions: [h(F.Button, { key: 1, variant: 'ghost', size: 'sm', icon: 'split', 'aria-label': 'Teilen' }), h(F.Button, { key: 2, variant: 'ghost', size: 'sm', icon: 'close', 'aria-label': 'Panel schließen' })] }),
+          h('div', { className: 'bottom-body' },
+            h(F.SerialMonitor, { lines: mon[0], port: '/dev/cu.usbmodem1101', baud: 115200, state: running ? phase[0] : 'connected',
+              onSend: function (t) { mon[1](function (ls) { return ls.concat([{ id: idc.current++, t: t0.current, kind: 'tx', text: t }]); }); },
+              onClear: function () { mon[1]([]); } }),
+            h(F.Plotter, { series: [{ name: 'volts', values: plot[0].v, unit: 'V' }, { name: 'mittel', values: plot[0].a, unit: 'V' }], min: 0, max: 3.3, window: 120, interval: 120 })))),
+      h(F.Panel, { className: 'device', title: 'Gerät', actions: h(F.Button, { variant: 'ghost', size: 'sm', icon: 'refresh', 'aria-label': 'Neu einlesen' }) },
+        h('div', { className: 'board-card' }, h('span', { className: 'ic' }, h(F.Icon, { name: 'chip', size: 18 })), h('div', { style: { flex: 1 } }, h('b', null, 'ESP32-S3 DevKitC-1'), h('small', null, 'rev v0.2 · 16 MB · 8 MB PSRAM')), h(F.StatusDot, { state: running ? phase[0] : 'connected', label: false })),
+        h('div', { className: 'sec' }, 'Speicher'),
+        h(F.MemoryMeter, { items: [{ label: 'Flash (app0)', used: 759808, total: 1310720 }, { label: 'RAM', used: 42188, total: 327680 }] }),
+        h('div', { className: 'sec' }, 'Pinbelegung'),
+        h(F.Pinout, { used: { 4: 'SENSOR', 48: 'LED' }, highlight: 4, ledOn: !running, legend: false }))),
+    h(F.StatusBar, {
+      progress: running ? total : null,
+      left: [h(F.StatusItem, { key: 1, onClick: function () {} }, h(F.StatusDot, { state: running ? phase[0] : 'connected', label: running ? (phase[0] === 'compiling' ? 'Kompiliere ' : 'Flashe ') + Math.round(total * 100) + ' %' : 'usbmodem1101' })),
+        h(F.StatusItem, { key: 2, icon: 'chip', onClick: function () {} }, 'ESP32-S3 · 16 MB'),
+        h(F.StatusItem, { key: 3, icon: 'error', onClick: function () {} }, fixed ? '0' : '1'), h(F.StatusItem, { key: 4, icon: 'warning', onClick: function () {} }, '0')],
+      right: [h(F.StatusItem, { key: 1 }, 'Zl 22, Sp ' + (fixed ? 13 : 12)), h(F.StatusItem, { key: 2 }, 'UTF-8'), h(F.StatusItem, { key: 3, onClick: function () {} }, '115200 baud'), h(F.StatusItem, { key: 4, icon: 'memory' }, 'Flash 58 %')]
+    }),
+    h('div', { className: 'toasts' }, h(F.ToastStack, null,
+      toasts[0].map(function (t) {
+        return h(F.Toast, { key: t.id, kind: t.kind, title: t.title, message: t.message, onClose: function () { drop(t.id); },
+          actions: t.fix ? [h(F.Button, { key: 1, size: 'sm', variant: 'primary', icon: 'check', onClick: function () { code[1](FIXED); drop(t.id); } }, "';' einfügen"), h(F.Button, { key: 2, size: 'sm', variant: 'ghost', onClick: function () { drop(t.id); } }, 'Zur Zeile')] : null });
+      }), progToast)),
+    pal[0] ? h('div', { className: 'overlay', onMouseDown: function (e) { if (e.target === e.currentTarget) pal[1](false); } }, h(F.CommandPalette, { items: COMMANDS, autoFocus: true, onRun: run, onClose: function () { pal[1](false); } })) : null);
+}
+ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+</script>
+</body>
+</html>

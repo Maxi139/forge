@@ -1,0 +1,20 @@
+[package]
+name = "forge-ai"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+forge-core = { path = "../forge-core" }
+forge-analysis = { path = "../forge-analysis" }
+forge-secrets = { path = "../forge-secrets" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "net", "io-util"] }
+tokio-util = "0.7"
+reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls"] }
+
+[dev-dependencies]
+tempfile = "3"

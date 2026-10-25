@@ -1,0 +1,14 @@
+{
+  "name": "forge",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "tokens": "node scripts/gen-tokens.mjs",
+    "test": "pnpm -r test"
+  },
+  "packageManager": "pnpm@11.0.8",
+  "devDependencies": {
+    "@biomejs/biome": "^2.6.2",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,0 +1,13 @@
+[package]
+name = "forge-devices"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serialport = "4"
+nusb = "0.2"
+futures-lite = "2"
+regex = "1"
+thiserror = "2"
