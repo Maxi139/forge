@@ -57,6 +57,18 @@ pub struct MonitorConfig {
 pub trait Link: Read + Write + Send {
     /// DTR und RTS setzen (steuern EN und GPIO0 vieler Boards).
     fn set_lines(&mut self, _dtr: bool, _rts: bool) {}
+    /// Stellt die Baudrate bei offenem Port um.
+    fn set_baud(&mut self, _baud: u32) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+/// Aufträge an den Monitor-Thread.
+enum Command {
+    Write(Vec<u8>),
+    /// Board per DTR/RTS neu starten.
+    Reset,
+    SetBaud(u32),
 }
 
 /// Öffnet eine Verbindung. Der Fehler ist ein fertiger Satz für die Anzeige.
@@ -84,6 +96,9 @@ impl Link for SerialLink {
         let _ = self.0.write_data_terminal_ready(dtr);
         let _ = self.0.write_request_to_send(rts);
     }
+    fn set_baud(&mut self, baud: u32) -> Result<(), String> {
+        self.0.set_baud_rate(baud).map_err(|e| describe(&e))
+    }
 }
 
 pub fn serial_opener() -> Opener {
@@ -98,7 +113,7 @@ pub fn serial_opener() -> Opener {
 
 pub struct Monitor {
     stop: Arc<AtomicBool>,
-    write_tx: mpsc::Sender<Vec<u8>>,
+    write_tx: mpsc::Sender<Command>,
     join: Option<JoinHandle<()>>,
 }
 
@@ -198,6 +213,7 @@ fn describe(e: &serialport::Error) -> String {
 const READ_TIMEOUT: Duration = Duration::from_millis(30);
 const BATCH_WINDOW: Duration = Duration::from_millis(40);
 const PARTIAL_AFTER: Duration = Duration::from_millis(150);
+const RESET_PULSE: Duration = Duration::from_millis(100);
 const RETRY: Duration = Duration::from_millis(400);
 
 impl Monitor {
@@ -211,7 +227,7 @@ impl Monitor {
         on_event: impl Fn(MonitorEvent) + Send + 'static,
     ) -> Monitor {
         let stop = Arc::new(AtomicBool::new(false));
-        let (write_tx, write_rx) = mpsc::channel::<Vec<u8>>();
+        let (write_tx, write_rx) = mpsc::channel::<Command>();
         let flag = stop.clone();
         let join = std::thread::spawn(move || run(cfg, open, flag, write_rx, on_event));
         Monitor {
@@ -222,7 +238,17 @@ impl Monitor {
     }
 
     pub fn write(&self, bytes: Vec<u8>) {
-        let _ = self.write_tx.send(bytes);
+        let _ = self.write_tx.send(Command::Write(bytes));
+    }
+
+    /// Startet das Board neu: RTS zieht EN kurz auf Masse, DTR bleibt aus, damit es normal bootet.
+    pub fn reset(&self) {
+        let _ = self.write_tx.send(Command::Reset);
+    }
+
+    /// Ändert die Baudrate, ohne den Port zu schließen.
+    pub fn set_baud(&self, baud: u32) {
+        let _ = self.write_tx.send(Command::SetBaud(baud));
     }
 
     /// Beendet den Monitor und gibt den Port frei, bevor die Funktion zurückkehrt.
@@ -244,12 +270,13 @@ fn run(
     cfg: MonitorConfig,
     open: Opener,
     stop: Arc<AtomicBool>,
-    write_rx: mpsc::Receiver<Vec<u8>>,
+    write_rx: mpsc::Receiver<Command>,
     on_event: impl Fn(MonitorEvent),
 ) {
     let started = Instant::now();
     let mut next_id = 0u64;
     let mut path = cfg.port.clone();
+    let mut baud = cfg.baud;
     let mut first = true;
     let mut last_reason = String::new();
     let mut last_state: Option<MonitorState> = None;
@@ -278,7 +305,7 @@ fn run(
             }
         }
 
-        let mut port = match open(&path, cfg.baud) {
+        let mut port = match open(&path, baud) {
             Ok(p) => p,
             Err(reason) => {
                 last_reason = reason;
@@ -325,22 +352,48 @@ fn run(
             if stop.load(Ordering::Relaxed) {
                 break None;
             }
-            while let Ok(bytes) = write_rx.try_recv() {
-                if let Err(e) = port.write_all(&bytes) {
-                    break_with(
-                        &mut pending,
-                        &mut mk,
-                        &mut next_id,
-                        format!("Senden fehlgeschlagen: {e}"),
-                    );
-                } else {
-                    let text = String::from_utf8_lossy(&bytes)
-                        .trim_end_matches(['\r', '\n'])
-                        .to_string();
-                    if pending.is_empty() {
-                        pending_since = Instant::now();
+            while let Ok(cmd) = write_rx.try_recv() {
+                if pending.is_empty() {
+                    pending_since = Instant::now();
+                }
+                match cmd {
+                    Command::Write(bytes) => {
+                        if let Err(e) = port.write_all(&bytes) {
+                            break_with(
+                                &mut pending,
+                                &mut mk,
+                                &mut next_id,
+                                format!("Senden fehlgeschlagen: {e}"),
+                            );
+                        } else {
+                            let text = String::from_utf8_lossy(&bytes)
+                                .trim_end_matches(['\r', '\n'])
+                                .to_string();
+                            pending.push(mk(LineKind::Tx, text, &mut next_id));
+                        }
                     }
-                    pending.push(mk(LineKind::Tx, text, &mut next_id));
+                    Command::Reset => {
+                        port.set_lines(false, true);
+                        std::thread::sleep(RESET_PULSE);
+                        port.set_lines(false, false);
+                        pending.push(mk(
+                            LineKind::Sys,
+                            "Board wird neu gestartet.".into(),
+                            &mut next_id,
+                        ));
+                    }
+                    Command::SetBaud(b) => match port.set_baud(b) {
+                        Ok(()) => {
+                            baud = b;
+                            pending.push(mk(LineKind::Sys, format!("Baudrate: {b}"), &mut next_id));
+                        }
+                        Err(e) => break_with(
+                            &mut pending,
+                            &mut mk,
+                            &mut next_id,
+                            format!("Baudrate nicht änderbar: {e}"),
+                        ),
+                    },
                 }
             }
             match port.read(&mut buf) {
@@ -451,6 +504,8 @@ mod tests {
         incoming: Mutex<std::collections::VecDeque<Vec<u8>>>,
         written: Mutex<Vec<u8>>,
         break_next_read: AtomicBool,
+        lines: Mutex<Vec<(bool, bool)>>,
+        bauds: Mutex<Vec<u32>>,
     }
 
     struct FakeLink(Arc<Wire>);
@@ -482,7 +537,15 @@ mod tests {
         }
     }
 
-    impl Link for FakeLink {}
+    impl Link for FakeLink {
+        fn set_lines(&mut self, dtr: bool, rts: bool) {
+            self.0.lines.lock().unwrap().push((dtr, rts));
+        }
+        fn set_baud(&mut self, baud: u32) -> Result<(), String> {
+            self.0.bauds.lock().unwrap().push(baud);
+            Ok(())
+        }
+    }
 
     fn wait_for(
         events: &Arc<Mutex<Vec<MonitorEvent>>>,
@@ -598,5 +661,43 @@ mod tests {
             ev.last(),
             Some(MonitorEvent::State(MonitorState::Closed))
         ));
+    }
+
+    #[test]
+    fn reset_pulses_rts_and_baud_changes_without_reopening() {
+        let wire = Arc::new(Wire::default());
+        let opens = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (w, o) = (wire.clone(), opens.clone());
+        let opener: Opener = Box::new(move |_, _| {
+            o.fetch_add(1, Ordering::Relaxed);
+            Ok(Box::new(FakeLink(w.clone())))
+        });
+        let events: Arc<Mutex<Vec<MonitorEvent>>> = Arc::default();
+        let sink = events.clone();
+        let monitor = Monitor::start_with(
+            MonitorConfig {
+                port: "/dev/cu.fake".into(),
+                device_id: None,
+                baud: 115200,
+                reset_on_open: true,
+            },
+            opener,
+            move |e| sink.lock().unwrap().push(e),
+        );
+        assert!(wait_for(&events, |e| e.iter().any(|x| matches!(
+            x,
+            MonitorEvent::State(MonitorState::Connected)
+        ))));
+        monitor.reset();
+        monitor.set_baud(9600);
+        assert!(wait_for(&events, |e| line_count(e) >= 2));
+        monitor.stop();
+        // Ein Neustart: EN kurz tief (RTS), danach beide Leitungen frei.
+        assert_eq!(
+            wire.lines.lock().unwrap().as_slice(),
+            [(false, true), (false, false)]
+        );
+        assert_eq!(wire.bauds.lock().unwrap().as_slice(), [9600]);
+        assert_eq!(opens.load(Ordering::Relaxed), 1);
     }
 }

@@ -222,5 +222,10 @@ export interface Backend {
   setOtaPassword(deviceId: string, password: string | null): Promise<void>;
   /** Fragt nach einem Ort und schreibt den Text dorthin. Liefert den Pfad, oder null bei Abbruch. */
   saveTextAs(defaultName: string, text: string): Promise<string | null>;
+  /** Startet das Board über DTR/RTS neu. */
+  monitorReset(): Promise<void>;
+  /** Ändert die Baudrate bei offenem Monitor, ohne den Port zu schließen. */
+  monitorSetBaud(baud: number): Promise<void>;
 }
+
 

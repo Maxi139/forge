@@ -262,7 +262,16 @@ type HardwareApi = Pick<
   | "otaPasswordSet"
   | "setOtaPassword"
   | "saveTextAs"
+  | "monitorReset"
+  | "monitorSetBaud"
 >;
+
+const BOOT_LOG = [
+  "ets Jul 29 2019 12:21:46",
+  "rst:0x1 (POWERON_RESET),boot:0x13 (SPI_FAST_FLASH_BOOT)",
+  "I (29) boot: ESP-IDF v5.1.2 2nd stage bootloader",
+  "I (312) wifi: Verbunden mit Heimnetz, IP 192.168.1.42",
+];
 
 export function createMockHardware(readProject: () => Record<string, string>, opts: { devicesAtStart?: boolean; speed?: number; secretNames?: string[] } = {}): { api: HardwareApi; control: MockControl } {
   const speed = opts.speed ?? 1;
@@ -471,6 +480,14 @@ export function createMockHardware(readProject: () => Record<string, string>, op
     },
     otaPasswordSet: async (id) => otaPasswords.has(id),
     setOtaPassword: async (id, password) => void (password ? otaPasswords.add(id) : otaPasswords.delete(id)),
+    monitorReset: async () => {
+      if (!monitorTimer) throw new Error("Der Monitor ist nicht verbunden.");
+      lines.emit([{ id: ++lineId, t: Date.now() - started, kind: "sys", text: "Board wird neu gestartet." }]);
+      for (const text of BOOT_LOG) lines.emit([{ id: ++lineId, t: Date.now() - started, kind: text.startsWith("E (") ? "err" : "rx", text }]);
+    },
+    monitorSetBaud: async (baud) => {
+      lines.emit([{ id: ++lineId, t: Date.now() - started, kind: "sys", text: `Baudrate: ${baud}` }]);
+    },
     saveTextAs: async (name, text) => {
       exported.set(name, text);
       return `/Users/mock/Downloads/${name}`;

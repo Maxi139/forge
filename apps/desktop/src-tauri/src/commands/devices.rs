@@ -130,6 +130,36 @@ pub fn monitor_write(state: State<AppState>, text: String, ending: String) -> Re
     Ok(())
 }
 
+/// Startet das Board über DTR/RTS neu, ohne den Monitor zu schließen.
+#[tauri::command]
+pub fn monitor_reset(state: State<AppState>) -> Result<(), String> {
+    let g = state
+        .devices
+        .monitor
+        .lock()
+        .map_err(|_| "Zustand gesperrt".to_string())?;
+    let (monitor, _) = g.as_ref().ok_or("Der Monitor ist nicht verbunden.")?;
+    monitor.reset();
+    Ok(())
+}
+
+/// Ändert die Baudrate bei offenem Port. Nach einem Flash gilt die neue Rate weiter.
+#[tauri::command]
+pub fn monitor_set_baud(state: State<AppState>, baud: u32) -> Result<(), String> {
+    if !(300..=4_000_000).contains(&baud) {
+        return Err("Die Baudrate muss zwischen 300 und 4000000 liegen.".into());
+    }
+    let mut g = state
+        .devices
+        .monitor
+        .lock()
+        .map_err(|_| "Zustand gesperrt".to_string())?;
+    let (monitor, spec) = g.as_mut().ok_or("Der Monitor ist nicht verbunden.")?;
+    spec.baud = baud;
+    monitor.set_baud(baud);
+    Ok(())
+}
+
 fn ota_account(device_id: &str) -> String {
     format!("ota:{device_id}")
 }

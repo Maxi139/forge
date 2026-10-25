@@ -142,6 +142,7 @@ interface Hardware {
   sendToMonitor(text: string, ending: "none" | "nl" | "cr" | "nlcr"): Promise<void>;
   clearMonitor(): void;
   setBaud(baud: number): Promise<void>;
+  resetBoard(): Promise<void>;
   togglePlotPause(): void;
 
   searchLibrary(query: string): void;
@@ -450,8 +451,19 @@ export const useHardware = create<Hardware>((set, get) => ({
   clearMonitor: () => set({ monitorLines: [], plot: [] }),
 
   async setBaud(baud) {
+    if (!Number.isInteger(baud) || baud < 300 || baud > 4_000_000) return;
     set((s) => ({ monitor: { ...s.monitor, baud } }));
-    if (get().monitor.open) await get().startMonitor();
+    if (!get().monitor.open) return;
+    // Läuft der Monitor, wird nur die Rate umgestellt. Der Port bleibt offen.
+    if (get().monitor.state.state === "connected") {
+      await backend().monitorSetBaud(baud).catch((e) => useStore.getState().toast({ kind: "error", title: t.errors.generic, message: errorText(e) }));
+    } else {
+      await get().startMonitor();
+    }
+  },
+
+  async resetBoard() {
+    await backend().monitorReset().catch((e) => useStore.getState().toast({ kind: "error", title: t.errors.generic, message: errorText(e) }));
   },
 
   togglePlotPause: () => set((s) => ({ plotPaused: !s.plotPaused })),

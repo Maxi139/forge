@@ -132,6 +132,8 @@ pub fn run() {
             devices::ota_password_status,
             devices::ota_password_set,
             devices::export_write,
+            devices::monitor_reset,
+            devices::monitor_set_baud,
         ])
         .build(tauri::generate_context!())
         .expect("Forge konnte nicht gestartet werden")

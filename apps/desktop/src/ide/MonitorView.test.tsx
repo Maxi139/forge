@@ -38,4 +38,20 @@ describe("SerialMonitor", () => {
     expect(screen.queryByText("alles gut")).toBeNull();
     expect(screen.getByText("E (1) kaputt")).toBeInTheDocument();
   });
+
+  it("übernimmt eine frei eingegebene Baudrate und löst den Reset aus", () => {
+    const onBaud = vi.fn();
+    const onReset = vi.fn();
+    render(<SerialMonitor lines={[]} baud={115200} onBaud={onBaud} onReset={onReset} />);
+    const baud = screen.getByLabelText("Baudrate");
+    fireEvent.change(baud, { target: { value: "76800" } });
+    fireEvent.keyDown(baud, { key: "Enter" });
+    expect(onBaud).toHaveBeenCalledWith(76800);
+    fireEvent.change(baud, { target: { value: "12" } });
+    fireEvent.blur(baud);
+    expect(onBaud).toHaveBeenCalledTimes(1);
+    expect((baud as HTMLInputElement).value).toBe("115200");
+    fireEvent.click(screen.getByLabelText("Board neu starten"));
+    expect(onReset).toHaveBeenCalled();
+  });
 });

@@ -25,13 +25,17 @@ export interface SerialMonitorProps {
   onBaud?(baud: number): void;
   /** Gibt die gezeigten Zeilen als Text zum Speichern heraus. */
   onExport?(text: string): void;
+  /** Startet das Board neu. */
+  onReset?(): void;
   height?: number;
   className?: string;
   /** Zusätzliche Schaltflächen am Ende der Leiste. */
   actions?: ReactNode;
 }
 
-const BAUDS = ["9600", "57600", "115200", "230400", "460800", "921600"];
+const BAUDS = ["9600", "19200", "38400", "57600", "74880", "115200", "230400", "460800", "921600", "1500000", "2000000"];
+const MIN_BAUD = 300;
+const MAX_BAUD = 4_000_000;
 
 function formatTimestamp(ms: number): string {
   const s = Math.floor(ms / 1000);
@@ -72,6 +76,7 @@ export function SerialMonitor({
   onClear,
   onBaud,
   onExport,
+  onReset,
   height,
   className,
   actions,
@@ -80,6 +85,14 @@ export function SerialMonitor({
   const [ts, setTs] = useState(timestamps);
   const [auto, setAuto] = useState(true);
   const [ending, setEnding] = useState<LineEnding>("nl");
+  const [baudText, setBaudText] = useState(String(baud));
+  useEffect(() => setBaudText(String(baud)), [baud]);
+  const commitBaud = () => {
+    const n = Number(baudText);
+    if (Number.isInteger(n) && n >= MIN_BAUD && n <= MAX_BAUD) {
+      if (n !== baud) onBaud?.(n);
+    } else setBaudText(String(baud));
+  };
   const [filterOpen, setFilterOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [matchCase, setMatchCase] = useState(false);
@@ -130,14 +143,24 @@ export function SerialMonitor({
         <Toggle icon="clock" title="Zeitstempel" on={ts} onToggle={() => setTs(!ts)} />
         <Toggle icon="arrow-down" title="Autoscroll" on={auto} onToggle={() => setAuto(!auto)} />
         <Toggle icon="search" title="Filter und Suche" on={filterOpen} onToggle={() => setFilterOpen(!filterOpen)} />
-        <Select
+        <Input
           size="sm"
           mono
+          inputMode="numeric"
+          list="fg-baud-list"
           aria-label="Baudrate"
-          value={String(baud)}
-          onChange={(e) => onBaud?.(Number(e.target.value))}
-          options={BAUDS}
+          title="Baudrate (frei eingeben oder wählen)"
+          value={baudText}
+          onChange={(e) => setBaudText(e.target.value.replace(/\D/g, ""))}
+          onBlur={commitBaud}
+          onKeyDown={(e) => e.key === "Enter" && commitBaud()}
         />
+        <datalist id="fg-baud-list">
+          {BAUDS.map((b) => (
+            <option key={b} value={b} />
+          ))}
+        </datalist>
+        {onReset ? <Button variant="ghost" size="sm" icon="refresh" aria-label="Board neu starten" title="Board neu starten (RTS-Reset)" onClick={onReset} /> : null}
         <Button variant="ghost" size="sm" icon="file" aria-label="Auswahl kopieren" title="Auswahl kopieren (ohne Auswahl: alles Gezeigte)" onClick={copy} />
         {onExport ? (
           <Button variant="ghost" size="sm" icon="arrow-down" aria-label="Log exportieren" title="Log als Datei speichern" disabled={shown.length === 0} onClick={() => onExport(formatLog(shown, ts))} />

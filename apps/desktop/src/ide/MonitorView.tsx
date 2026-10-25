@@ -30,7 +30,7 @@ export function MonitorView() {
   const device = useHardware((s) => s.devices.find((d) => d.id === s.selectedDeviceId) ?? null);
   const monitor = useHardware((s) => s.monitor);
   const lines = useHardware((s) => s.monitorLines);
-  const { sendToMonitor, clearMonitor, setBaud, startMonitor, stopMonitor } = useHardware.getState();
+  const { sendToMonitor, clearMonitor, setBaud, startMonitor, stopMonitor, resetBoard } = useHardware.getState();
 
   if (!device) {
     return <EmptyState icon="serial" title={t.monitor.noDevice} text={t.monitor.noDeviceText} pattern={false} />;
@@ -44,6 +44,7 @@ export function MonitorView() {
       onSend={(text, ending) => void sendToMonitor(text, ending)}
       onClear={clearMonitor}
       onBaud={(b) => void setBaud(b)}
+      onReset={monitor.open ? () => void resetBoard() : undefined}
       onExport={(text) => void exportLog(text)}
       actions={
         monitor.open ? (
