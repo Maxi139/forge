@@ -6,6 +6,9 @@ import { countBySeverity } from "../lib/diagnostics";
 import { baseName, useStore } from "../lib/store";
 import { useAi } from "../lib/ai";
 import { useHardware } from "../lib/hardware";
+import { webKind } from "../lib/web/embed";
+
+const LANGUAGE = { cpp: "C++ (Arduino)", html: "HTML", css: "CSS", js: "JavaScript" } as const;
 
 export function StatusBarView() {
   const project = useStore((s) => s.project);
@@ -56,7 +59,7 @@ export function StatusBarView() {
             {cursor.selected ? <StatusItem>{t.status.selected(cursor.selected)}</StatusItem> : null}
             <StatusItem>{dirty ? t.status.unsaved : t.status.saved}</StatusItem>
             <StatusItem>UTF-8</StatusItem>
-            <StatusItem>C++ (Arduino)</StatusItem>
+            <StatusItem>{LANGUAGE[webKind(active) ?? "cpp"]}</StatusItem>
           </>
         ) : null
       }

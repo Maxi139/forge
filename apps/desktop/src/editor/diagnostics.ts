@@ -206,6 +206,7 @@ const SOURCE_LABEL: Record<Diagnostic["source"], string> = {
   clangd: "clangd",
   analysis: "Analyse",
   ai: "KI",
+  web: "Web",
 };
 
 /** Eine angenommene Behebung erledigt ihre Meldung sofort, ohne den nächsten Lauf abzuwarten. */

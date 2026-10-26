@@ -46,6 +46,7 @@ import type {
   ProjectInfo,
   RecentProject,
   SecretStatus,
+  WebPreviewSource,
   ToolchainProgress,
   ToolchainStatus,
 } from "./types";
@@ -161,7 +162,8 @@ export interface Backend {
   aiConfigure(opts: { key?: string; model?: string; dailyTokens?: number }): Promise<void>;
   aiSetProjectEnabled(enabled: boolean): Promise<void>;
   aiModels(): Promise<ModelList>;
-  aiCheck(board: BoardArg, overrides: Record<string, string>): Promise<AiRun>;
+  /** `skip`: Dateien mit Strukturfehlern, die die KI nicht prüfen soll (Webdateien kennt nur die Oberfläche). */
+  aiCheck(board: BoardArg, overrides: Record<string, string>, skip?: string[]): Promise<AiRun>;
   onAiBlock(handler: (r: AiBlockResult) => void): Promise<Unsubscribe>;
   /** Alle Gespräche über Hinweise der KI im Projekt. */
   aiThreads(): Promise<AiThread[]>;
@@ -235,6 +237,10 @@ export interface Backend {
   /** Lädt und installiert das Update. Der Neustart folgt mit `appRestart`. */
   appUpdateInstall(): Promise<void>;
   appRestart(): Promise<void>;
+
+  /* Webseiten */
+  /** Legt die Seite zur Anzeige bereit. Das Vorschaufenster lädt sie von der zurückgegebenen Adresse. */
+  webPreview(html: string): Promise<WebPreviewSource>;
 }
 
 

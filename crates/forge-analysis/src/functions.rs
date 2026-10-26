@@ -287,4 +287,26 @@ mod fingerprint_tests {
         assert_eq!(a, b);
         assert_ne!(a, c);
     }
+
+    #[test]
+    fn the_text_of_a_raw_string_always_counts() {
+        // Eine Webseite im Sketch ist Teil der Firmware: Leerraum und `//` darin zählen.
+        let page = |body: &str| {
+            format!("const char P[] PROGMEM = R\"forge({body})forge\";\nvoid f() {{}}\n")
+        };
+        let base = fingerprint(&page("<a href=\"http://x\">  a</a>\n<b>"));
+        assert_eq!(
+            base,
+            fingerprint(&page("<a href=\"http://x\">  a</a>\n<b>"))
+        );
+        assert_ne!(base, fingerprint(&page("<a href=\"http://x\"> a</a>\n<b>")));
+        assert_ne!(
+            base,
+            fingerprint(&page("<a href=\"http://y\">  a</a>\n<b>"))
+        );
+        assert_ne!(
+            base,
+            fingerprint(&page("<a href=\"http://x\">  a</a>\n\n<b>"))
+        );
+    }
 }

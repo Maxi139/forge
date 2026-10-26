@@ -13,3 +13,4 @@ pub mod search;
 pub mod secrets;
 pub mod toolchain;
 pub mod updater;
+pub mod web;

@@ -39,6 +39,7 @@ export type DialogState =
   | { kind: "settings" }
   | { kind: "secrets" }
   | { kind: "aiTask" }
+  | { kind: "webEmbed"; source?: string; target?: string }
   | { kind: "moveSecret"; file: string; line: number; from: number; to: number; value: string; name: string; mode: "call" | "decl" }
   | { kind: "toolchain" }
   | { kind: "examples" }
@@ -59,10 +60,12 @@ export interface LayoutState {
   bottomOpen: boolean;
   deviceWidth: number;
   deviceOpen: boolean;
+  previewWidth: number;
+  previewOpen: boolean;
 }
 
 const LAYOUT_KEY = "forge.layout";
-const DEFAULT_LAYOUT: LayoutState = { sidebarWidth: 248, sidebarOpen: true, bottomHeight: 248, bottomOpen: true, deviceWidth: 312, deviceOpen: false };
+const DEFAULT_LAYOUT: LayoutState = { sidebarWidth: 248, sidebarOpen: true, bottomHeight: 248, bottomOpen: true, deviceWidth: 312, deviceOpen: false, previewWidth: 420, previewOpen: false };
 
 function readLayout(): LayoutState {
   try {
@@ -109,6 +112,12 @@ let beforeSave: ((path: string) => Promise<void>) | null = null;
 /** Vor dem ausdrücklichen Speichern der aktiven Datei läuft dieser Hook (Formatieren beim Speichern). */
 export function setBeforeSave(fn: ((path: string) => Promise<void>) | null) {
   beforeSave = fn;
+}
+
+let afterSave: ((path: string) => void) | null = null;
+/** Nach jedem erfolgreichen Speichern einer Datei läuft dieser Hook (Webseiten in der .ino aktualisieren). */
+export function setAfterSave(fn: ((path: string) => void) | null) {
+  afterSave = fn;
 }
 
 export interface RecoverySnapshot {
@@ -606,6 +615,7 @@ export const useStore = create<Store>((set, get) => ({
     try {
       await backend().writeFile(p, b.text);
       set((s) => ({ buffers: { ...s.buffers, [p]: { ...s.buffers[p], saved: b.text } } }));
+      afterSave?.(p);
       return true;
     } catch (e) {
       get().toast({ kind: "error", title: t.errors.saveFailed(baseName(p)), message: errorText(e), actions: [{ label: t.errors.retry, run: () => void get().save(p) }] });

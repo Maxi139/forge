@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { t } from "../i18n/de";
 import { backend } from "./backend";
+import { settleWebSync } from "./web/sync";
 import type {
   BoardArg,
   BoardEntry,
@@ -359,7 +360,7 @@ export const useHardware = create<Hardware>((set, get) => ({
     const s = useStore.getState();
     const board = get().board();
     if (!s.project || !board || get().activity !== "idle" || !get().ensureToolchain()) return;
-    if (!(await s.saveAll())) return;
+    if (!(await s.saveAll()) || !(await settleWebSync())) return;
     const name = s.project.name;
     set({ activity: "compiling", build: { mode: "compile", status: "running", stage: 0, progress: 0, detail: "Starte", title: t.hardware.buildStart(name) } });
     progressToast = s.toast({ kind: "progress", title: t.hardware.buildStart(name), message: "", progress: 0, onCancel: () => void get().cancel() });
@@ -382,7 +383,7 @@ export const useHardware = create<Hardware>((set, get) => ({
       s.toast({ kind: "warning", title: t.hardware.noBoardTitle, message: t.hardware.noBoardText, actions: [{ label: t.hardware.rescan, run: () => void get().refreshDevices() }] });
       return;
     }
-    if (!(await s.saveAll())) return;
+    if (!(await s.saveAll()) || !(await settleWebSync())) return;
     const chip = chipOf(board.fqbn);
     set({ activity: "flashing", build: { mode: "flash", status: "running", stage: 0, progress: 0, detail: "Starte", title: t.hardware.flashStart(chip), target: baseName(device.port) } });
     progressToast = s.toast({ kind: "progress", title: t.hardware.flashStart(chip), message: "", progress: 0, onCancel: () => void get().cancel() });

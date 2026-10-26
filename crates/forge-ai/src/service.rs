@@ -2,15 +2,15 @@ use crate::budget::Budget;
 use crate::cache::Cache;
 use crate::client::{AiError, ChatRequest, OpenRouter};
 use crate::prompt::{
-    fix_edits, fix_prompt, parse_fix, parse_reply, to_diagnostics, user_prompt, Review, FIX_SYSTEM,
-    PROMPT_VERSION, SYSTEM,
+    fix_edits, fix_prompt, fix_system_for, parse_fix, parse_reply, system_for, to_diagnostics,
+    user_prompt, Review, PROMPT_VERSION,
 };
 use crate::task::{
     parse_task, plan_changes, plan_created, task_prompt, SourceText, TaskOutcome, TASK_SYSTEM,
 };
 use crate::threads::{
-    parse_thread_reply, thread_prompt, Resolution, Role, Thread, ThreadStore, Verdict,
-    THREAD_SYSTEM,
+    parse_thread_reply, thread_prompt, thread_system, Resolution, Role, Thread, ThreadStore,
+    Verdict,
 };
 use forge_analysis::Block;
 use forge_core::{Diagnostic, TextEdit};
@@ -163,11 +163,12 @@ pub async fn review_blocks(
                 ));
                 break;
             }
-            let (client, model, user, sem) = (
+            let (client, model, user, sem, system) = (
                 client.clone(),
                 model.to_string(),
                 user_prompt(&b, redactor, &threads.closed_notes(&b.name)),
                 sem.clone(),
+                system_for(&b),
             );
             summary.calls += 1;
             in_flight += 1;
@@ -176,7 +177,7 @@ pub async fn review_blocks(
                 let r = client
                     .chat(ChatRequest {
                         model: &model,
-                        system: SYSTEM,
+                        system,
                         user: &user,
                         max_tokens: 1200,
                     })
@@ -285,7 +286,7 @@ pub async fn reply_in_thread(
     let reply = client
         .chat(ChatRequest {
             model,
-            system: THREAD_SYSTEM,
+            system: &thread_system(block),
             user: &prompt,
             max_tokens: 700,
         })
@@ -335,7 +336,7 @@ pub async fn fix_issue(
     let reply = client
         .chat(ChatRequest {
             model,
-            system: FIX_SYSTEM,
+            system: fix_system_for(block),
             user: &prompt,
             max_tokens: 900,
         })

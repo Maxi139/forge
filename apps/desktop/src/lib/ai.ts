@@ -3,6 +3,7 @@ import { t } from "../i18n/de";
 import { backend, type AiBlockResult, type AiState, type AiThread, type ModelInfo } from "./backend";
 import type { Diagnostic } from "./diagnostics";
 import { errorText, useStore } from "./store";
+import { webKind } from "./web/embed";
 
 interface Ai {
   state: AiState | null;
@@ -151,11 +152,15 @@ export const useAi = create<Ai>((set, get) => ({
     for (const src of ["syntax", "compiler"] as const) {
       for (const list of Object.values(store.diagnostics[src] ?? {})) if (list.some((d) => d.severity === "error")) return;
     }
+    // Webdateien prüft die KI in ihrem gespeicherten Stand. Strukturfehler darin schließen die Datei aus.
     const overrides: Record<string, string> = {};
-    for (const [path, b] of Object.entries(store.buffers)) if (b.text !== b.saved) overrides[path] = b.text;
+    for (const [path, b] of Object.entries(store.buffers)) if (b.text !== b.saved && !webKind(path)) overrides[path] = b.text;
+    const skip = Object.entries(store.diagnostics.web ?? {})
+      .filter(([, list]) => list.some((d) => d.severity === "error"))
+      .map(([file]) => file);
     set({ running: true });
     try {
-      const res = await backend().aiCheck({ fqbn: p.config.board.fqbn, options: p.config.board.options }, overrides);
+      const res = await backend().aiCheck({ fqbn: p.config.board.fqbn, options: p.config.board.options }, overrides, skip);
       if (res.skipped) {
         await get().refresh();
         return;

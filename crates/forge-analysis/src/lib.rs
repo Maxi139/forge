@@ -8,6 +8,7 @@ mod includes;
 mod parse;
 mod prototypes;
 mod syntax;
+mod web;
 
 pub use analyze::{analyze, AnalysisInput, AnalysisResult, Chip, FunctionFacts, SourceFile};
 pub use context::{blocks, Block};
@@ -16,3 +17,4 @@ pub use includes::{includes, Include};
 pub use parse::{neutralize_attribute_macros, parse};
 pub use prototypes::{combine, Combined, SketchSource};
 pub use syntax::syntax_diagnostics;
+pub use web::{routes, web_blocks, web_lang};

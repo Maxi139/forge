@@ -23,7 +23,7 @@ import { Explorer } from "./Explorer";
 import { LibraryView } from "./LibraryView";
 import { StatusBarView } from "./StatusBarView";
 import { useShortcuts } from "./shortcuts";
-import { useLiveAi, useLiveAnalysis, useLiveChecks, useLiveLsp } from "./useLiveChecks";
+import { useLiveAi, useLiveAnalysis, useLiveChecks, useLiveLsp, useLiveWebChecks } from "./useLiveChecks";
 import { SearchView } from "./SearchView";
 import { useNativeEvents } from "./useNativeEvents";
 
@@ -47,6 +47,7 @@ export function Shell() {
   useLiveAnalysis();
   useLiveAi();
   useLiveLsp();
+  useLiveWebChecks();
   useEditorHooks();
 
   const project = useStore((s) => s.project);

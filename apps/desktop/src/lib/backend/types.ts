@@ -486,6 +486,12 @@ export interface BacktraceFrame {
   line: number;
 }
 
+/** Woher die Vorschau einer Webseite geladen wird: eine Adresse der App oder, im Browser, der Text selbst. */
+export interface WebPreviewSource {
+  src?: string;
+  srcdoc?: string;
+}
+
 /** Ein Update des Programms selbst, gemeldet vom Update-Server. */
 export interface AppUpdate {
   version: string;

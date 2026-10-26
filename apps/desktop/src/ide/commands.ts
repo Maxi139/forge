@@ -6,6 +6,8 @@ import { useStore } from "../lib/store";
 import { findReferences, formatActive, renameSymbol } from "../editor/actions";
 import { useFormat } from "../editor/format";
 import { useAppUpdate } from "../lib/appUpdate";
+import { createWebStarter } from "../lib/web/starter";
+import { syncWebBlocks } from "../lib/web/sync";
 
 export interface RunnableCommand extends Command {
   run(): void;
@@ -67,6 +69,10 @@ export function buildCommands(): RunnableCommand[] {
     },
     hasProject && !!s.active && { id: "editor.rename", group: g.file, label: t.commands.renameSymbol, icon: "file-code", shortcut: ["F2"], run: () => void renameSymbol() },
     hasProject && !!s.active && { id: "editor.references", group: g.file, label: t.commands.findReferences, icon: "search", shortcut: ["⇧", "F12"], run: () => void findReferences() },
+    hasProject && { id: "web.embed", group: g.file, label: t.commands.webEmbed, icon: "file-code", run: () => s.setDialog({ kind: "webEmbed" }) },
+    hasProject && { id: "web.preview", group: g.view, label: t.commands.webPreview, icon: "play", run: () => s.patchLayout({ previewOpen: !s.layout.previewOpen }) },
+    hasProject && { id: "web.sync", group: g.file, label: t.commands.webSync, icon: "refresh", run: () => void syncWebBlocks().then((files) => files.length || useStore.getState().toast({ kind: "info", title: t.web.nothingToSync, ttl: 3000 })) },
+    hasProject && { id: "web.create", group: g.file, label: t.commands.webCreate, icon: "plus", run: () => void createWebStarter() },
     { id: "example.open", group: g.file, label: t.examples.command, icon: "file-code", run: () => s.setDialog({ kind: "examples" }) },
     { id: "library.installZip", group: g.view, label: t.updates.installZip, icon: "library", run: () => void useHardware.getState().installLibraryZip() },
     { id: "app.checkUpdate", group: g.view, label: t.appUpdate.command, icon: "refresh", run: () => void useAppUpdate.getState().check() },

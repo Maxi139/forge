@@ -110,6 +110,9 @@ export const forgeTheme = EditorView.theme({
     color: "var(--ink-muted)",
   },
 
+  /* Platzhalter {{name}} in Webdateien */
+  ".cm-forge-placeholder": { color: "var(--glut)", backgroundColor: "var(--glut-soft)", borderRadius: "3px", padding: "0 1px" },
+
   /* Suchleiste */
   ".cm-panels": { backgroundColor: "var(--surface-panel)", color: "var(--ink)", borderColor: "var(--line)" },
   ".cm-panels.cm-panels-top": { borderBottom: "1px solid var(--line)" },
@@ -152,6 +155,12 @@ const hs = HighlightStyle.define([
   { tag: [t.lineComment, t.blockComment, t.comment], color: "var(--syn-comment)", fontStyle: "italic" },
   { tag: [t.operator, t.punctuation, t.separator, t.paren, t.squareBracket, t.brace, t.angleBracket, t.derefOperator], color: "var(--syn-punct)" },
   { tag: t.invalid, color: "var(--error)" },
+  // HTML und CSS
+  { tag: [t.tagName, t.standard(t.tagName)], color: "var(--syn-keyword)" },
+  { tag: [t.attributeName, t.propertyName], color: "var(--syn-type)" },
+  { tag: [t.attributeValue], color: "var(--syn-string)" },
+  { tag: [t.color, t.unit, t.labelName], color: "var(--syn-constant)" },
+  { tag: [t.documentMeta, t.url], color: "var(--syn-macro)" },
 ]);
 
 export const forgeHighlighting = syntaxHighlighting(hs);

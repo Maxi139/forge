@@ -11,7 +11,9 @@ use std::path::{Component, Path};
 pub const MAX_CONTEXT_CHARS: usize = 60_000;
 
 /// Dateiendungen, die die KI neu anlegen darf.
-const NEW_FILE_EXTENSIONS: &[&str] = &["ino", "cpp", "c", "cc", "h", "hpp"];
+const NEW_FILE_EXTENSIONS: &[&str] = &[
+    "ino", "cpp", "c", "cc", "h", "hpp", "html", "htm", "css", "js", "mjs",
+];
 
 pub const TASK_SYSTEM: &str = r#"Du bist ein Programmierassistent in einer IDE für ESP32-Sketches (Arduino-Framework, C++).
 Der Nutzer gibt dir eine Aufgabe. Du siehst alle Quelldateien des Projekts. Setze die Aufgabe um, indem du den Code änderst.
@@ -19,6 +21,8 @@ Der Nutzer gibt dir eine Aufgabe. Du siehst alle Quelldateien des Projekts. Setz
 Regeln:
 - Ändere nur, was die Aufgabe verlangt. Halte Stil, Einrückung und Namen des vorhandenen Codes ein.
 - Schreibe kompilierbaren Code für das genannte Board. Benutze nur Bibliotheken, die im Projekt schon vorkommen oder zum Arduino-ESP32-Kern gehören.
+- Webdateien (HTML, CSS, JavaScript, meist im Ordner web/) gehören zum Projekt. Der Sketch liefert sie über seinen Webserver aus, abgerufen wird sie meist mit dem Handy. Halte Adressen (server.on) im Sketch und Anfragen (fetch) in der Seite zusammen. Verweise auf Dateien im Netz meidest du, die Seite soll ohne Internet laufen. Platzhalter in doppelten geschweiften Klammern (`{{wert}}`) ersetzt der Sketch beim Ausliefern, behalte sie bei.
+- Zwischen `// >>> forge:web` und `// <<< forge:web` steht Text, den Forge aus einer Webdatei erzeugt. Ändere dort nichts, sondern die Webdatei. Forge überträgt die Änderung beim Speichern.
 - Zugangsdaten gehören nie in den Code. Platzhalter wie ‹Secret NAME› schreibst du nie in neuen Code und änderst sie nicht.
 - Ist die Aufgabe unklar oder ohne Rückfrage nicht lösbar, ändere nichts und erkläre in "note", was du wissen musst.
 
@@ -31,6 +35,38 @@ Jeder "old"-Text muss in seiner Datei genau einmal vorkommen. Er darf mehrere Ze
 pub struct SourceText {
     pub shown: String,
     pub text: String,
+}
+
+const BLOCK_BEGIN: &str = "// >>> forge:web";
+const BLOCK_END: &str = "// <<< forge:web";
+
+/// Kürzt die von Forge erzeugten Webseiten im Sketch. Ihr Text steht schon in der Webdatei und würde den Kontext
+/// nur doppelt füllen. Die Änderungen der KI treffen trotzdem den echten Text, denn `plan_changes` sucht dort.
+pub fn elide_generated(text: &str) -> String {
+    let mut out: Vec<String> = Vec::new();
+    let mut skipped = 0usize;
+    let mut inside = false;
+    for line in text.split('\n') {
+        let t = line.trim();
+        if !inside {
+            out.push(line.to_string());
+            if t.starts_with(BLOCK_BEGIN) {
+                inside = true;
+                skipped = 0;
+            }
+        } else if t == BLOCK_END {
+            out.push(format!("// … erzeugter Text, {skipped} Zeilen weggelassen"));
+            out.push(line.to_string());
+            inside = false;
+        } else {
+            skipped += 1;
+        }
+    }
+    // Ein Anfang ohne Ende bleibt, wie er ist.
+    if inside {
+        return text.to_string();
+    }
+    out.join("\n")
 }
 
 /// Der Text, der an die KI geht. Secrets sind vorher geschwärzt.
@@ -48,7 +84,11 @@ pub fn task_prompt(
     }
     out.push_str("\nDateien des Projekts:\n");
     for f in files {
-        out.push_str(&format!("\n=== {} ===\n{}\n", f.shown, f.text.trim_end()));
+        out.push_str(&format!(
+            "\n=== {} ===\n{}\n",
+            f.shown,
+            elide_generated(f.text.trim_end())
+        ));
     }
     if !problems.trim().is_empty() {
         out.push_str(&format!("\nAktuelle Meldungen:\n{}\n", problems.trim()));
@@ -332,5 +372,41 @@ mod tests {
         );
         assert!(!p.contains("mein-token-ABCDEF"));
         assert!(p.contains("Blinke mit der LED") && p.contains("=== a.ino ==="));
+    }
+
+    #[test]
+    fn generated_web_pages_are_elided_for_the_ai_only() {
+        let text = "int a;\n// >>> forge:web web/index.html name=X\n// Erzeugt\nconst char X[] = R\"f(<p>\n<p>)f\";\n// <<< forge:web\nvoid setup() {}\n";
+        let short = elide_generated(text);
+        assert!(short.contains("// >>> forge:web web/index.html name=X"));
+        assert!(short.contains("// … erzeugter Text, 3 Zeilen weggelassen"));
+        assert!(!short.contains("<p>") && short.contains("void setup() {}"));
+        // Ohne Ende bleibt alles stehen.
+        let open = "// >>> forge:web a.html\nconst char X[] = \"\";\n";
+        assert_eq!(elide_generated(open), open);
+        // Der Prompt zeigt die gekürzte Fassung.
+        let src = SourceText {
+            shown: "a.ino".into(),
+            text: text.into(),
+        };
+        let p = task_prompt("ESP32", &[src], None, "", "Aufgabe", &Redactor::new([]));
+        assert!(!p.contains("<p>"));
+    }
+
+    #[test]
+    fn web_files_may_be_created() {
+        let root = Path::new("/p");
+        let ok = |p: &str| NewFile {
+            file: p.into(),
+            text: "<p>".into(),
+        };
+        let made = plan_created(
+            root,
+            |_| false,
+            &[ok("web/index.html"), ok("web/app.js"), ok("web/style.css")],
+        )
+        .unwrap();
+        assert_eq!(made.len(), 3);
+        assert!(plan_created(root, |_| false, &[ok("web/run.sh")]).is_err());
     }
 }

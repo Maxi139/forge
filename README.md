@@ -53,4 +53,6 @@ Tests, die echte Werkzeuge brauchen, laufen mit `cargo test -p forge-lsp --test 
 
 Einstellungen → Claude Code → „Mit Claude Code verbinden“ schreibt eine `.mcp.json` ins Projekt. Sie enthält nur den Aufruf der Brücke (`forge-desktop --mcp-bridge`), kein Token.
 
+Webseiten für den ESP32 (HTML, CSS, JavaScript, Vorschau, „In .ino“): [docs/web.md](docs/web.md).
+
 Release, Signierung und Notarisierung: [docs/release.md](docs/release.md).

@@ -50,6 +50,7 @@ import type {
   ProjectInfo,
   RecentProject,
   SecretStatus,
+  WebPreviewSource,
   ToolchainProgress,
   ToolchainStatus,
 } from "./types";
@@ -191,7 +192,7 @@ export function createTauriBackend(): Backend {
     aiConfigure: (o) => call<void>("ai_configure", { keyValue: o.key ?? null, model: o.model ?? null, dailyTokens: o.dailyTokens ?? null }),
     aiSetProjectEnabled: (enabled) => call<void>("ai_set_project_enabled", { enabled }),
     aiModels: () => call<ModelList>("ai_models"),
-    aiCheck: (board: BoardArg, overrides) => call<AiRun>("ai_check", { board, overrides }),
+    aiCheck: (board: BoardArg, overrides, skip) => call<AiRun>("ai_check", { board, overrides, skip: skip ?? [] }),
     aiThreads: () => call<AiThread[]>("ai_threads"),
     aiThreadReply: (board, overrides, threadId, text) => call<AiThreadReply>("ai_thread_reply", { board, overrides, threadId, text }),
     aiThreadClose: (threadId) => call<AiThread>("ai_thread_close", { threadId }),
@@ -236,5 +237,6 @@ export function createTauriBackend(): Backend {
     appUpdateCheck: () => call<AppUpdate | null>("update_check"),
     appUpdateInstall: () => call<void>("update_install"),
     appRestart: () => call<void>("update_restart"),
+    webPreview: async (html) => ({ src: await call<string>("web_preview_set", { html }) }) satisfies WebPreviewSource,
   };
 }

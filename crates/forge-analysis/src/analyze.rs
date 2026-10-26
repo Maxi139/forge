@@ -37,6 +37,7 @@ impl Chip {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct SourceFile {
     pub path: String,
     pub text: String,

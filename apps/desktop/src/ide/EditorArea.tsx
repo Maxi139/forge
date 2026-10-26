@@ -1,13 +1,16 @@
-import { Badge, Button, EmptyState, Icon, Tabs, type TabItem } from "@forge/ui";
-import { useEffect, useMemo, useRef } from "react";
+import { Badge, Button, EmptyState, Icon, Splitter, Tabs, type TabItem } from "@forge/ui";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { applyEdits } from "../editor/diagnostics";
 import { currentSymbol, useSymbols } from "../editor/symbols";
 import { ForgeEditor, type CursorInfo, type ForgeEditorHandle, type Reveal } from "../editor/ForgeEditor";
 import { t } from "../i18n/de";
 import { useAi } from "../lib/ai";
 import { baseName, diagnosticsForFile, useStore } from "../lib/store";
+import { isHtml, webKind } from "../lib/web/embed";
+import { CODE_FILE, flattenTree, toRel } from "../lib/web/sync";
 import { projectRelative } from "./Explorer";
 import { Welcome } from "./Welcome";
+import { WebPreview } from "./WebPreview";
 
 export function EditorArea({ reveal }: { reveal: Reveal | null }) {
   const project = useStore((s) => s.project);
@@ -23,6 +26,10 @@ export function EditorArea({ reveal }: { reveal: Reveal | null }) {
   const setCursor = useStore((s) => s.setCursor);
 
   const editor = useRef<ForgeEditorHandle>(null);
+  const layout = useStore((s) => s.layout);
+  const patchLayout = useStore((s) => s.patchLayout);
+  const tree = useStore((s) => s.tree);
+  const [livePreview, setLivePreview] = useState<number | null>(null);
 
   // Textänderungen von außen, etwa „In Schlüsselbund legen“.
   useEffect(() => {
@@ -73,6 +80,9 @@ export function EditorArea({ reveal }: { reveal: Reveal | null }) {
   }
 
   const buffer = buffers[active];
+  const isWeb = !!webKind(active);
+  const hasPages = flattenTree(tree).some(isHtml);
+  const showPreview = isWeb && layout.previewOpen;
   const crumbs = buffer.readOnly ? active.split("/").slice(-4) : [project.name, ...projectRelative(project.path, active).split("/")];
 
   return (
@@ -97,6 +107,20 @@ export function EditorArea({ reveal }: { reveal: Reveal | null }) {
             </>
           ) : null}
           <span style={{ flex: 1 }} />
+          {isWeb ? (
+            <>
+              <Button variant="ghost" size="sm" icon="play" aria-pressed={layout.previewOpen} onClick={() => patchLayout({ previewOpen: !layout.previewOpen })} title={t.web.previewTitle}>
+                {t.web.preview}
+              </Button>
+              <Button variant="ghost" size="sm" icon="file-code" onClick={() => setDialog({ kind: "webEmbed", source: isHtml(active) ? toRel(active) : undefined })} title={t.web.embedTitle}>
+                {t.web.embed}
+              </Button>
+            </>
+          ) : hasPages && CODE_FILE.test(active) && !buffer.readOnly ? (
+            <Button variant="ghost" size="sm" icon="file-code" onClick={() => setDialog({ kind: "webEmbed", target: toRel(active) })} title={t.web.embedTitle}>
+              {t.web.embed}
+            </Button>
+          ) : null}
           {!buffer.readOnly ? (
             <Button variant="ghost" size="sm" icon="spark" onClick={() => setDialog({ kind: "aiTask" })} title={t.ai.taskTitle}>
               {t.ai.taskShort}
@@ -110,6 +134,8 @@ export function EditorArea({ reveal }: { reveal: Reveal | null }) {
             </Button>
           )}
         </div>
+        <div className="ide-editor-body">
+        <div className="ide-editor-main">
         <ForgeEditor
           ref={editor}
           docKey={active}
@@ -125,6 +151,29 @@ export function EditorArea({ reveal }: { reveal: Reveal | null }) {
           onSave={() => void save()}
           onCursor={(c: CursorInfo) => setCursor(c)}
         />
+        </div>
+        {showPreview ? (
+          <>
+            <Splitter
+              orientation="vertical"
+              label="Breite der Vorschau"
+              value={livePreview ?? layout.previewWidth}
+              min={260}
+              max={760}
+              reset={420}
+              invert
+              onChange={setLivePreview}
+              onCommit={(v) => {
+                patchLayout({ previewWidth: v });
+                setLivePreview(null);
+              }}
+            />
+            <div className="ide-preview" style={{ width: livePreview ?? layout.previewWidth }}>
+              <WebPreview />
+            </div>
+          </>
+        ) : null}
+        </div>
       </div>
     </>
   );

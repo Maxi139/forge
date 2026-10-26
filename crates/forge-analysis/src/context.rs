@@ -22,6 +22,8 @@ pub struct Block {
     pub key: String,
     /// Beschreibung der Umgebung der Funktion als Text.
     pub context: String,
+    /// Sprache des Blocks: `cpp` für Funktionen des Sketches, `html`, `css` oder `js` für Webdateien.
+    pub lang: &'static str,
 }
 
 fn role(contexts: &[String]) -> &'static str {
@@ -93,7 +95,7 @@ fn declarations(
     (defines, globals)
 }
 
-fn line_numbered(code: &str) -> String {
+pub(crate) fn line_numbered(code: &str) -> String {
     code.split('\n')
         .enumerate()
         .map(|(i, l)| format!("{:>3}  {}", i + 1, l))
@@ -180,6 +182,7 @@ pub fn blocks(input: &AnalysisInput, facts: &[FunctionFacts], board: &str) -> Ve
                 code: line_numbered(&code),
                 key: format!("{:x}", h.finalize()),
                 context: ctx,
+                lang: "cpp",
             });
         }
     }

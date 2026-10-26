@@ -9,7 +9,7 @@ use forge_ai::service::{
 use forge_ai::task::{TaskOutcome, MAX_CONTEXT_CHARS};
 use forge_ai::threads::{Resolution, Thread, ThreadStore};
 use forge_ai::OpenRouter;
-use forge_analysis::{analyze, blocks, AnalysisInput, Chip, SourceFile};
+use forge_analysis::{analyze, blocks, web_blocks, web_lang, AnalysisInput, Chip, SourceFile};
 use forge_project::{ForgeToml, CONFIG_FILE};
 use forge_secrets::keychain::SecretStore;
 use serde::Serialize;
@@ -190,6 +190,7 @@ pub async fn ai_check(
     state: State<'_, AppState>,
     board: super::build::BoardArg,
     overrides: HashMap<String, String>,
+    skip: Option<Vec<String>>,
 ) -> Result<AiRun, String> {
     let root = state.root()?;
     if !project_enabled(Some(&root)) {
@@ -216,7 +217,13 @@ pub async fn ai_check(
     let settings = ai_settings(&app);
 
     let cancel = Jobs::begin(&state.jobs.ai);
-    let prepared = prepare_blocks(root.clone(), board.fqbn.clone(), overrides.clone()).await?;
+    let prepared = prepare_blocks(
+        root.clone(),
+        board.fqbn.clone(),
+        overrides.clone(),
+        skip.unwrap_or_default(),
+    )
+    .await?;
     let (block_list, texts) = prepared;
     let names: Vec<(String, String)> = block_list
         .iter()
@@ -257,6 +264,7 @@ async fn prepare_blocks(
     root: std::path::PathBuf,
     fqbn: String,
     overrides: HashMap<String, String>,
+    skip: Vec<String>,
 ) -> Result<(Vec<forge_analysis::Block>, HashMap<String, String>), String> {
     tokio::task::spawn_blocking(move || {
         let mut files = Vec::new();
@@ -294,10 +302,31 @@ async fn prepare_blocks(
             .iter()
             .map(|f| (f.path.clone(), f.text.clone()))
             .collect();
-        let usable: Vec<_> = all
+        let mut usable: Vec<_> = all
             .into_iter()
             .filter(|b| !broken.contains(&b.file))
             .collect();
+
+        // Webdateien: Strukturfehler kennt nur die Oberfläche (`skip`), die KI prüft solche Dateien nicht.
+        let web: Vec<SourceFile> = web_files(&root)
+            .into_iter()
+            .filter_map(|path| {
+                let key = path.to_string_lossy().to_string();
+                let text = overrides
+                    .get(&key)
+                    .cloned()
+                    .or_else(|| std::fs::read_to_string(&path).ok())?;
+                Some(SourceFile { path: key, text })
+            })
+            .collect();
+        let web_ok: Vec<SourceFile> = web
+            .iter()
+            .filter(|f| !skip.contains(&f.path))
+            .cloned()
+            .collect();
+        usable.extend(web_blocks(&web_ok, &files, &label));
+        let mut texts = texts;
+        texts.extend(web.into_iter().map(|f| (f.path, f.text)));
         (usable, texts)
     })
     .await
@@ -352,7 +381,8 @@ pub async fn ai_thread_reply(
         .get(&thread_id)
         .map(|t| t.function.clone())
         .ok_or("Das Gespräch gibt es nicht mehr.")?;
-    let (block_list, _) = prepare_blocks(root.clone(), board.fqbn.clone(), overrides).await?;
+    let (block_list, _) =
+        prepare_blocks(root.clone(), board.fqbn.clone(), overrides, Vec::new()).await?;
     let block = block_list.into_iter().find(|b| b.name == function);
 
     let red = redactor(&root, [("OPENROUTER_KEY".to_string(), api_key.clone())]);
@@ -430,7 +460,8 @@ pub async fn ai_fix(
     let settings = ai_settings(&app);
     let p = paths(&app, &root)?;
 
-    let (block_list, texts) = prepare_blocks(root.clone(), board.fqbn.clone(), overrides).await?;
+    let (block_list, texts) =
+        prepare_blocks(root.clone(), board.fqbn.clone(), overrides, Vec::new()).await?;
     let block = block_list
         .into_iter()
         .find(|b| b.file == file && b.start_line <= line && line <= b.end_line)
@@ -454,6 +485,41 @@ pub async fn ai_fix(
     .map_err(|e| e.to_string())
 }
 
+const WEB_SKIP_DIRS: &[&str] = &[".git", ".forge", "build", "node_modules", ".vscode"];
+const WEB_MAX_FILES: usize = 60;
+const WEB_MAX_BYTES: u64 = 200_000;
+
+/// Die Webdateien (HTML, CSS, JavaScript) des Projekts, sortiert.
+fn web_files(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+    fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(read) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in read.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            if kind.is_dir() {
+                if !WEB_SKIP_DIRS.contains(&name.as_str()) && !name.starts_with('.') {
+                    walk(&path, out);
+                }
+            } else if kind.is_file()
+                && web_lang(&name).is_some()
+                && entry.metadata().is_ok_and(|m| m.len() <= WEB_MAX_BYTES)
+            {
+                out.push(path);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, &mut out);
+    out.sort();
+    out.truncate(WEB_MAX_FILES);
+    out
+}
+
 /// Die Quelldateien des Projekts für eine Aufgabe: das geöffnete zuerst, dann der Rest, solange er in den Kontext passt.
 fn task_files(
     root: &std::path::Path,
@@ -461,12 +527,18 @@ fn task_files(
     active: Option<&str>,
 ) -> Result<Vec<(String, String, String)>, String> {
     let mut all: Vec<(String, String, String)> = Vec::new();
-    for path in forge_toolchain::hash::source_files(root) {
+    // Quelltext des Sketches und Webdateien: Eine Aufgabe betrifft oft beides, etwa eine neue Adresse samt Knopf.
+    let paths = forge_toolchain::hash::source_files(root)
+        .into_iter()
+        .chain(web_files(root));
+    for path in paths {
         let ext = path
             .extension()
             .map(|e| e.to_string_lossy().to_lowercase())
             .unwrap_or_default();
-        if !matches!(ext.as_str(), "ino" | "cpp" | "c" | "cc" | "h" | "hpp") {
+        if !matches!(ext.as_str(), "ino" | "cpp" | "c" | "cc" | "h" | "hpp")
+            && web_lang(&path.to_string_lossy()).is_none()
+        {
             continue;
         }
         let full = path.to_string_lossy().to_string();

@@ -8,7 +8,7 @@ mod watch;
 
 use commands::{
     ai, boardcfg, build, devices, examples, files, libraries, lsp, package, project, recents,
-    search, secrets, toolchain, updater,
+    search, secrets, toolchain, updater, web,
 };
 use tauri::{Emitter, Manager};
 
@@ -43,6 +43,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
+        // Die Vorschau von Webseiten läuft unter einer eigenen Adresse mit eigener Sicherheitsrichtlinie.
+        .register_uri_scheme_protocol(web::PREVIEW_SCHEME, web::serve)
         .manage(state::AppState::default())
         .setup(|app| {
             logging::install_panic_hook();
@@ -164,6 +166,7 @@ pub fn run() {
             updater::update_check,
             updater::update_install,
             updater::update_restart,
+            web::web_preview_set,
         ])
         .build(tauri::generate_context!())
         .expect("Forge konnte nicht gestartet werden")

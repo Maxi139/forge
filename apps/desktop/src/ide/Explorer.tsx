@@ -4,7 +4,7 @@ import { t } from "../i18n/de";
 import type { FileNode } from "../lib/backend";
 import { baseName, useStore } from "../lib/store";
 
-const CODE_EXT = /\.(ino|cpp|c|h|hpp|cc)$/i;
+const CODE_EXT = /\.(ino|cpp|c|h|hpp|cc|html?|css|m?js)$/i;
 
 function iconFor(name: string): TreeNode["icon"] {
   if (CODE_EXT.test(name)) return "file-code";

@@ -21,17 +21,71 @@ Wenn nichts auffällt: {"status":"ok"}
 Sonst: {"status":"issues","issues":[{"line":<Zeilennummer in der Funktion, 1 ist die erste Zeile>,"severity":"info" oder "warning","message":"<ein Satz auf Deutsch: was falsch ist und warum>","fix":{"old":"<exakter Text aus dieser Zeile>","new":"<Ersatz>"} oder null}]}
 Höchstens 3 Hinweise. "warning" nur bei einem sicheren Fehler, sonst "info"."#;
 
+/// Prüfanweisung für Webdateien (HTML, CSS, JavaScript) des Sketches. Ändert sich der Text, `PROMPT_VERSION` erhöhen.
+pub const WEB_SYSTEM: &str = r#"Du prüfst eine Webdatei (HTML, CSS oder JavaScript) eines ESP32-Sketches auf Logikfehler. Der ESP32 liefert die Seite über seinen Webserver aus. Abgerufen wird sie meist mit dem Handy im eigenen WLAN, oft ohne Internet.
+
+Melde nur echte Fehler, die zu falschem Verhalten führen: Anfragen an Adressen, die der Sketch nicht beantwortet (siehe Kontext), oder mit falscher Methode (GET statt POST); Zugriffe auf IDs, die es in den Seiten nicht gibt; vertauschte oder falsch umgerechnete Werte und Einheiten; nicht abgefangene Fehler bei Anfragen; zu schnelles Abfragen (Intervall unter 200 ms); Verweise auf Dateien im Netz, die ohne Internet nicht laden; Formulare, deren Ziel der Sketch nicht kennt; Schleifen ohne Ausweg; Selektoren oder Werte in CSS, die nachweislich nichts bewirken.
+Melde keine Stilfragen, keine Namen, keine Barrierefreiheit, keine Browser-Unterschiede und keine Verbesserungen. Im Zweifel: kein Hinweis.
+Der Kontext zeigt die Adressen des Sketches und die IDs der Seiten. Verlasse dich darauf. Platzhalter in doppelten geschweiften Klammern ersetzt der Sketch vor dem Ausliefern, sie sind kein Fehler.
+Kommentare im Code zeigen die Absicht. Widersprich ihnen nicht.
+Steht im Kontext ein Abschnitt „Bereits geklärt“, hat der Nutzer diese Hinweise schon beantwortet. Melde sie nicht noch einmal, auch nicht anders formuliert oder an einer Nachbarzeile.
+Prüfe jeden Hinweis, bevor du ihn nennst. Kommst du beim Begründen zu dem Schluss, dass es korrekt oder beabsichtigt ist, nenne ihn nicht.
+
+Antworte ausschließlich mit einem JSON-Objekt.
+Wenn nichts auffällt: {"status":"ok"}
+Sonst: {"status":"issues","issues":[{"line":<Zeilennummer in der Datei, 1 ist die erste Zeile>,"severity":"info" oder "warning","message":"<ein Satz auf Deutsch: was falsch ist und warum>","fix":{"old":"<exakter Text aus dieser Zeile>","new":"<Ersatz>"} oder null}]}
+Höchstens 3 Hinweise. "warning" nur bei einem sicheren Fehler, sonst "info"."#;
+
+/// Die Anweisung zur Prüfung, passend zur Sprache des Blocks.
+pub fn system_for(block: &Block) -> &'static str {
+    if block.lang == "cpp" {
+        SYSTEM
+    } else {
+        WEB_SYSTEM
+    }
+}
+
+/// Die Anweisung zum Beheben, passend zur Sprache des Blocks.
+pub fn fix_system_for(block: &Block) -> &'static str {
+    if block.lang == "cpp" {
+        FIX_SYSTEM
+    } else {
+        WEB_FIX_SYSTEM
+    }
+}
+
+/// „Funktion“ für Quelltext des Sketches, „Datei“ für Webdateien.
+pub fn what(block: &Block) -> &'static str {
+    if block.lang == "cpp" {
+        "Funktion"
+    } else {
+        "Datei"
+    }
+}
+
 /// Der Text, der an die KI geht. Secrets sind vorher geschwärzt.
 pub fn user_prompt(block: &Block, redactor: &Redactor, solved: &str) -> String {
     let mut raw = format!(
-        "Kontext:\n{}\nFunktion „{}“ (die Zeilen sind nummeriert):\n```cpp\n{}\n```",
-        block.context, block.name, block.code
+        "Kontext:\n{}\n{} „{}“ (die Zeilen sind nummeriert):\n```{}\n{}\n```",
+        block.context,
+        what(block),
+        block.name,
+        fence(block),
+        block.code
     );
     if !solved.is_empty() {
         raw.push_str("\n\nBereits geklärt:\n");
         raw.push_str(solved);
     }
     redactor.apply(&raw)
+}
+
+/// Die Sprachangabe für den Codezaun.
+pub fn fence(block: &Block) -> &'static str {
+    match block.lang {
+        "cpp" => "cpp",
+        other => other,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -176,13 +230,25 @@ Antworte ausschließlich mit einem JSON-Objekt:
 Jeder "old"-Text muss genau einmal in der Funktion vorkommen, darf mehrere Zeilen umfassen und muss so lang sein, dass er eindeutig ist.
 Lässt sich der Fehler nicht ohne Rückfrage beheben: {"edits":[],"note":"<ein Satz: warum nicht>"}"#;
 
+/// Anweisung zum Beheben eines Hinweises in einer Webdatei.
+pub const WEB_FIX_SYSTEM: &str = r#"Du behebst genau einen Fehler in einer Webdatei (HTML, CSS oder JavaScript) eines ESP32-Sketches.
+Du bekommst die Datei mit Zeilennummern, die betroffene Zeile und die Beschreibung des Fehlers.
+Ändere nur, was nötig ist, damit dieser Fehler behoben ist. Keine Umbenennungen, keine Umformatierung, keine weiteren Verbesserungen. Platzhalter in doppelten geschweiften Klammern bleiben unverändert.
+
+Antworte ausschließlich mit einem JSON-Objekt:
+{"edits":[{"old":"<exakter Text aus der Datei, ohne Zeilennummern>","new":"<Ersatz>"}],"note":"<ein Satz auf Deutsch: was du geändert hast>"}
+Jeder "old"-Text muss genau einmal in der Datei vorkommen, darf mehrere Zeilen umfassen und muss so lang sein, dass er eindeutig ist.
+Lässt sich der Fehler nicht ohne Rückfrage beheben: {"edits":[],"note":"<ein Satz: warum nicht>"}"#;
+
 /// Der Text, der an die KI geht, wenn sie einen Hinweis beheben soll. Secrets sind vorher geschwärzt.
 pub fn fix_prompt(block: &Block, redactor: &Redactor, line: u32, message: &str) -> String {
     let rel = line.saturating_sub(block.start_line) + 1;
     let raw = format!(
-        "Kontext:\n{}\nFunktion „{}“ (die Zeilen sind nummeriert):\n```cpp\n{}\n```\n\nBetroffen ist Zeile {rel}.\nFehler: {}",
+        "Kontext:\n{}\n{} „{}“ (die Zeilen sind nummeriert):\n```{}\n{}\n```\n\nBetroffen ist Zeile {rel}.\nFehler: {}",
         block.context,
+        what(block),
         block.name,
+        fence(block),
         block.code,
         message.trim()
     );
@@ -439,5 +505,25 @@ mod tests {
         let (e, note) = parse_fix("{\"edits\":[],\"note\":\"Unklar.\"}").unwrap();
         assert_eq!((e.len(), note.as_str()), (0, "Unklar."));
         assert!(parse_fix("nope").is_err());
+    }
+
+    #[test]
+    fn web_blocks_get_their_own_instructions_and_wording() {
+        use forge_analysis::{web_blocks, SourceFile};
+        let page = "<button id=\"a\" onclick=\"fetch('/led')\">LED</button>\n".repeat(6);
+        let web = [SourceFile {
+            path: "/p/web/index.html".into(),
+            text: page,
+        }];
+        let b = &web_blocks(&web, &[], "ESP32-S3")[0];
+        assert_eq!(system_for(b), WEB_SYSTEM);
+        assert_eq!(fix_system_for(b), WEB_FIX_SYSTEM);
+        let p = user_prompt(b, &Redactor::new([]), "");
+        assert!(p.contains("Datei „index.html“") && p.contains("```html\n  1  <button"));
+        assert!(!p.contains("Funktion"));
+        // Quelltext des Sketches bleibt unverändert.
+        let cpp = block();
+        assert_eq!(system_for(&cpp), SYSTEM);
+        assert!(user_prompt(&cpp, &Redactor::new([]), "").contains("Funktion „fill“"));
     }
 }

@@ -37,6 +37,8 @@ pub struct AppState {
     pub package_dirty: std::sync::atomic::AtomicBool,
     /// Höchstens ein Speichern gleichzeitig.
     pub package_save: tokio::sync::Mutex<()>,
+    /// Die Webseite, die das Vorschaufenster gerade zeigt, mit einer Zählung für die Adresse.
+    pub web_preview: Mutex<(u64, String)>,
 }
 
 /// Ein Projekt, dessen Arbeitskopie (`root`) in eine `.forgeproj`-Datei gespeichert wird.

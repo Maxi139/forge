@@ -363,6 +363,17 @@ Behaupte nichts, was nicht im Code steht. Der Kontext zeigt, wie die Funktion be
 
 Antworte ausschließlich mit einem JSON-Objekt: {"verdict":"agree" oder "explain" oder "disagree","reply":"<deine Antwort auf Deutsch>"}"#;
 
+/// Anweisung für das Gespräch. Bei Webdateien kommt ein Hinweis dazu, worum es geht.
+pub fn thread_system(block: Option<&Block>) -> String {
+    match block {
+        Some(b) if b.lang != "cpp" => format!(
+            "{THREAD_SYSTEM}\n\nDer Code ist keine Funktion, sondern eine Webdatei ({}) des Sketches, die der ESP32 über seinen Webserver ausliefert.",
+            b.lang
+        ),
+        _ => THREAD_SYSTEM.to_string(),
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Verdict {
     Agree,
@@ -403,8 +414,12 @@ pub fn thread_prompt(thread: &Thread, block: Option<&Block>, redactor: &Redactor
     let mut out = String::new();
     if let Some(b) = block {
         out.push_str(&format!(
-            "Kontext:\n{}\nFunktion „{}“ (die Zeilen sind nummeriert):\n```cpp\n{}\n```\n\n",
-            b.context, b.name, b.code
+            "Kontext:\n{}\n{} „{}“ (die Zeilen sind nummeriert):\n```{}\n{}\n```\n\n",
+            b.context,
+            crate::prompt::what(b),
+            b.name,
+            crate::prompt::fence(b),
+            b.code
         ));
     } else {
         out.push_str(&format!(

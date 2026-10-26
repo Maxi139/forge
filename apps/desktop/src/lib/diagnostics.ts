@@ -1,5 +1,5 @@
 export type Severity = "error" | "warning" | "info";
-export type DiagnosticSource = "syntax" | "compiler" | "clangd" | "analysis" | "ai";
+export type DiagnosticSource = "syntax" | "compiler" | "clangd" | "analysis" | "ai" | "web";
 
 /** Ersetzt den Text zwischen zwei Positionen (Zeilen 1-basiert, Spalten 0-basiert). */
 export interface TextEdit {

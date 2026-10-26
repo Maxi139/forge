@@ -1,4 +1,4 @@
-import { acceptCompletion, autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from "@codemirror/autocomplete";
+import { acceptCompletion, autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap, snippetKeymap } from "@codemirror/autocomplete";
 import { addCursorAbove, addCursorBelow, defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { cpp } from "@codemirror/lang-cpp";
 import { bracketMatching, foldGutter, foldKeymap, indentOnInput } from "@codemirror/language";
@@ -23,7 +23,10 @@ import { forgeLsp, lspCompletions } from "./lsp";
 import { type AiOk, forgeAiMarks, setAiOk } from "./aiMarks";
 import { forgeDiagnostics, setDiagnostics } from "./diagnostics";
 import { forgeHighlighting, forgeTheme } from "./forgeTheme";
+import { snippetKeys } from "./snippetKeys";
 import { semanticLite } from "./semanticLite";
+import { webKind } from "../lib/web/embed";
+import { webExtensions } from "./webLang";
 
 /**
  * Die App läuft mit strenger CSP. Tauri hängt den Nonce an seine eigenen Tags, und CodeMirror braucht ihn
@@ -92,8 +95,10 @@ export const ForgeEditor = forwardRef<ForgeEditorHandle, ForgeEditorProps>(funct
 
   useImperativeHandle(ref, () => ({ focus: () => viewRef.current?.focus(), view: () => viewRef.current }), []);
 
-  const makeState = (doc: string) =>
-    EditorState.create({
+  const makeState = (doc: string, key: string) => {
+    // Webdateien haben eigene Sprachen. Den Sprachserver für C++ gibt es dort nicht.
+    const web = webKind(key);
+    return EditorState.create({
       doc,
       extensions: [
         forgeDiagnostics(),
@@ -136,16 +141,20 @@ export const ForgeEditor = forwardRef<ForgeEditorHandle, ForgeEditorProps>(funct
         closeBrackets(),
         highlightActiveLine(),
         highlightSelectionMatches(),
-        autocompletion({ override: [lspCompletions(() => cb.current.docKey)], icons: true, maxRenderedOptions: 60 }),
-        forgeLsp({ file: () => cb.current.docKey, goto: (l) => cb.current.onGoto?.(l) }),
+        web
+          ? autocompletion({ icons: true, maxRenderedOptions: 60 })
+          : autocompletion({ override: [lspCompletions(() => cb.current.docKey)], icons: true, maxRenderedOptions: 60 }),
+        // Tab nimmt einen offenen Vorschlag an, bevor es im Snippet zum nächsten Feld springt.
+        snippetKeymap.of(snippetKeys),
+        ...(web ? [] : [forgeLsp({ file: () => cb.current.docKey, goto: (l) => cb.current.onGoto?.(l) })]),
         ...(cb.current.readOnly ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []),
         prefs.current.of(editorSettingsExtension(useEditorSettings.getState().settings)),
-        cpp(),
+        ...(web ? webExtensions(web) : [cpp()]),
         forgeTheme,
         forgeHighlighting,
-        semanticLite,
+        ...(web ? [] : [semanticLite]),
         extras.current.of([]),
-        EditorView.contentAttributes.of({ "aria-label": "Quelltext", spellcheck: "false", autocorrect: "off", autocapitalize: "off" }),
+        EditorView.contentAttributes.of({ "aria-label": web ? "Webdatei" : "Quelltext", spellcheck: "false", autocorrect: "off", autocapitalize: "off" }),
         keymap.of([
           { key: "Mod-s", preventDefault: true, run: () => (cb.current.onSave?.(), true) },
           // ⌘U flasht (Menü). Ohne diese Zeile macht CodeMirror daraus zusätzlich „Auswahl rückgängig“.
@@ -176,10 +185,11 @@ export const ForgeEditor = forwardRef<ForgeEditorHandle, ForgeEditorProps>(funct
         }),
       ],
     });
+  };
 
   // Ansicht einmal aufbauen.
   useEffect(() => {
-    const view = new EditorView({ parent: host.current!, state: makeState("") });
+    const view = new EditorView({ parent: host.current!, state: makeState("", "") });
     viewRef.current = view;
     return () => {
       view.destroy();
@@ -201,7 +211,7 @@ export const ForgeEditor = forwardRef<ForgeEditorHandle, ForgeEditorProps>(funct
     }
     const hit = cache.current.get(props.docKey);
     const reuse = hit && hit.revision === props.revision;
-    const state = reuse ? hit.state : makeState(props.text);
+    const state = reuse ? hit.state : makeState(props.text, props.docKey);
     view.setState(state);
     cache.current.set(props.docKey, { state, revision: props.revision, scrollTop: reuse ? hit.scrollTop : 0 });
     current.current = props.docKey;

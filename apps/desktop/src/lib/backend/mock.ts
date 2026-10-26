@@ -61,6 +61,13 @@ export function createMockBackend(opts: { devicesAtStart?: boolean; speed?: numb
   files.set(`${sample}/sensor.h`, "#pragma once\n\nint readSensor();\n");
   files.set(`${sample}/sensor.cpp`, '#include <Arduino.h>\n#include "sensor.h"\n\nint readSensor() {\n  return analogRead(4);\n}\n');
   files.set(`${sample}/data/index.html`, "<!doctype html>\n<title>Sensor</title>\n");
+  dirs.add(`${sample}/web`);
+  files.set(
+    `${sample}/web/index.html`,
+    '<!doctype html>\n<html lang="de">\n<head>\n  <meta charset="utf-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1">\n  <title>Sensor</title>\n  <link rel="stylesheet" href="style.css">\n</head>\n<body>\n  <h1>Sensor</h1>\n  <p class="card">Messwert: <strong id="wert">{{wert}}</strong> V</p>\n  <button id="knopf" type="button">LED umschalten</button>\n  <script src="app.js"></script>\n</body>\n</html>\n',
+  );
+  files.set(`${sample}/web/style.css`, "body { font: 16px/1.5 system-ui, sans-serif; margin: 1rem; }\n.card { padding: 1rem; border: 1px solid #8884; border-radius: 12px; }\nbutton { width: 100%; padding: 0.8rem; border: 0; border-radius: 12px; background: #ff6a2b; color: #fff; }\n");
+  files.set(`${sample}/web/app.js`, 'document.getElementById("knopf").addEventListener("click", () => {\n  console.log("Knopf gedrückt");\n});\n');
   files.set(`${sample}/forge.toml`, '[project]\nname = "neopixel-sensor"\n\n[board]\nfqbn = "esp32:esp32:esp32s3"\n');
   projects.set(sample, {
     kind: "project",
@@ -234,6 +241,7 @@ export function createMockBackend(opts: { devicesAtStart?: boolean; speed?: numb
     appUpdateCheck: async () => null,
     appUpdateInstall: async () => undefined,
     appRestart: async () => undefined,
+    webPreview: async (html) => ({ srcdoc: html }),
   };
 }
 

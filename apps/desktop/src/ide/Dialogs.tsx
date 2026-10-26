@@ -5,6 +5,7 @@ import { backend, type TemplateId } from "../lib/backend";
 import { FALLBACK_BOARDS } from "../lib/boards";
 import { baseName, errorText, isCancelled, useStore } from "../lib/store";
 import { AiTaskDialog } from "./AiTaskDialog";
+import { WebEmbedDialog } from "./WebEmbedDialog";
 import { BoardPicker } from "./BoardPicker";
 import { ExamplesDialog } from "./ExamplesDialog";
 import { SecretsDialog, MoveSecretDialog } from "./SecretsDialog";
@@ -29,6 +30,8 @@ export function Dialogs() {
       return <SecretsDialog />;
     case "aiTask":
       return <AiTaskDialog />;
+    case "webEmbed":
+      return <WebEmbedDialog source={dialog.source} target={dialog.target} />;
     case "moveSecret":
       return <MoveSecretDialog {...dialog} />;
     case "unsaved":

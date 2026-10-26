@@ -1,5 +1,6 @@
 import { useEffect } from "react";
-import { setBeforeSave, useStore } from "../lib/store";
+import { setAfterSave, setBeforeSave, useStore } from "../lib/store";
+import { onFileSaved } from "../lib/web/sync";
 import { FORMATTABLE, formatFile, useFormat } from "./format";
 import { AUTOSAVE_DELAY, useEditorSettings } from "./settings";
 
@@ -21,8 +22,13 @@ export function useEditorHooks() {
       if (!formatOnSave || !FORMATTABLE.test(path) || useFormat.getState().available === false) return;
       await formatFile(path, { quiet: true });
     });
+    // Eine gespeicherte Webseite aktualisiert ihren Block in der .ino.
+    setAfterSave(onFileSaved);
     void useFormat.getState().check();
-    return () => setBeforeSave(null);
+    return () => {
+      setBeforeSave(null);
+      setAfterSave(null);
+    };
   }, []);
 
   useEffect(() => {

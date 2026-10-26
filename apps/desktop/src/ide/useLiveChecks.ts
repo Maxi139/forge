@@ -5,11 +5,25 @@ import { useAi } from "../lib/ai";
 import { useHardware } from "../lib/hardware";
 import { useLsp } from "../lib/lsp";
 import { isCancelled, useStore } from "../lib/store";
+import { checkWeb } from "../lib/web/check";
+import { webKind } from "../lib/web/embed";
+import { flattenTree, toRel } from "../lib/web/sync";
 
 const SYNTAX_DELAY = 250;
 const CHECK_DELAY = 800;
 const ANALYSIS_DELAY = 1100;
 const CODE_FILE = /\.(ino|cpp|c|cc|h|hpp)$/i;
+
+/**
+ * Ändert sich, sobald sich Quelltext des Sketches ändert. Webdateien zählen nicht: Compiler und Analyse
+ * kennen sie nicht. Mit `withWeb` zählt eine gespeicherte Webdatei, eine geänderte nicht.
+ */
+function codeSignature(buffers: Record<string, { version: number; text: string; saved: string; readOnly?: boolean }>, withWeb = false, skipReadOnly = false): string {
+  return Object.entries(buffers)
+    .filter(([p, b]) => (CODE_FILE.test(p) || (withWeb && webKind(p))) && !(skipReadOnly && b.readOnly))
+    .map(([p, b]) => (webKind(p) ? `${p}:${b.text === b.saved ? b.version : "d"}` : `${p}:${b.version}:${b.text === b.saved ? "s" : "d"}`))
+    .join("|");
+}
 
 /**
  * Prüft den Quelltext, während getippt wird: erst die schnelle Strukturprüfung, kurz danach der Compiler.
@@ -45,7 +59,7 @@ export function useLiveChecks() {
   }, [active, activeText]);
 
   // Compilerprüfung des ganzen Sketches, mit ungespeichertem Text.
-  const signature = useStore((s) => Object.entries(s.buffers).map(([p, b]) => `${p}:${b.version}:${b.text === b.saved ? "s" : "d"}`).join("|"));
+  const signature = useStore((s) => codeSignature(s.buffers));
   useEffect(() => {
     if (!project || !fqbn || !ready || activity !== "idle") return;
     const run = ++seq.current;
@@ -80,7 +94,7 @@ export function useLiveAnalysis() {
   const project = useStore((s) => s.project);
   const fqbn = project?.config.board.fqbn;
   const options = project?.config.board.options;
-  const signature = useStore((s) => Object.entries(s.buffers).map(([p, b]) => `${p}:${b.version}:${b.text === b.saved ? "s" : "d"}`).join("|"));
+  const signature = useStore((s) => codeSignature(s.buffers));
   const seq = useRef(0);
 
   useEffect(() => {
@@ -117,7 +131,8 @@ export function useLiveAi() {
   const ready = useHardware((s) => !!s.toolchain?.esp32Core);
   const activity = useHardware((s) => s.activity);
   const enabled = useAi((s) => !!s.state && s.state.hasKey && s.state.projectEnabled);
-  const signature = useStore((s) => Object.entries(s.buffers).map(([p, b]) => `${p}:${b.version}:${b.text === b.saved ? "s" : "d"}`).join("|"));
+  // Webdateien prüft die KI als ganze Datei. Sie läuft erst, wenn die Datei gespeichert ist, nicht bei jedem Tastendruck.
+  const signature = useStore((s) => codeSignature(s.buffers, true));
   const errors = useStore((s) => {
     for (const src of ["syntax", "compiler"] as const) {
       for (const list of Object.values(s.diagnostics[src] ?? {})) if (list.some((d) => d.severity === "error")) return true;
@@ -147,10 +162,27 @@ export function useLiveLsp() {
   const fqbn = project?.config.board.fqbn;
   const options = project?.config.board.options;
   const libraries = useHardware((s) => s.libraries.length);
-  const signature = useStore((s) => Object.entries(s.buffers).filter(([, b]) => !b.readOnly).map(([p, b]) => `${p}:${b.version}:${b.text === b.saved ? "s" : "d"}`).join("|"));
+  const signature = useStore((s) => codeSignature(s.buffers, false, true));
   useEffect(() => {
     if (!project || !ready) return;
     const id = setTimeout(() => void useLsp.getState().sync(), LSP_DELAY);
     return () => clearTimeout(id);
   }, [project, ready, fqbn, options, libraries, signature]);
+}
+
+const WEB_DELAY = 250;
+
+/** Prüft die geöffnete Webdatei beim Tippen: Strukturfehler, fehlende und externe Dateien. */
+export function useLiveWebChecks() {
+  const active = useStore((s) => s.active);
+  const text = useStore((s) => (s.active ? s.buffers[s.active]?.text : undefined));
+  const tree = useStore((s) => s.tree);
+  useEffect(() => {
+    if (!active || text == null || !webKind(active)) return;
+    const id = setTimeout(() => {
+      const known = new Set(flattenTree(tree).map(toRel));
+      useStore.getState().setDiagnostics("web", active, checkWeb(toRel(active), text, { exists: (p) => known.has(p) }).map((d) => ({ ...d, file: active })));
+    }, WEB_DELAY);
+    return () => clearTimeout(id);
+  }, [active, text, tree]);
 }

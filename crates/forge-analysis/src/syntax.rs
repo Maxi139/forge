@@ -30,9 +30,21 @@ pub fn syntax_diagnostics(file: &str, text: &str) -> Vec<Diagnostic> {
     let mut in_block_comment: Option<(usize, usize)> = None;
     // Offene Zeichenkette, die mit Backslash am Zeilenende in die nächste Zeile läuft (Makros).
     let mut continued: Option<u8> = None;
+    // Offener Rohtext (`R"x(` … `)x"`): Abschlusstext, Zeile und Spalte des Anfangs. Er darf sich über Zeilen erstrecken
+    // und enthält beliebige Zeichen, etwa den Quelltext einer Webseite.
+    let mut raw: Option<(String, usize, usize)> = None;
     for (row, line) in lines.iter().enumerate() {
         let b = line.as_bytes();
         let mut i = 0;
+        if let Some((close, _, _)) = &raw {
+            match line.find(close.as_str()) {
+                Some(at) => {
+                    i = at + close.len();
+                    raw = None;
+                }
+                None => continue,
+            }
+        }
         if let Some(q) = continued.take() {
             while i < b.len() {
                 if b[i] == b'\\' {
@@ -63,6 +75,28 @@ pub fn syntax_diagnostics(file: &str, text: &str) -> Vec<Diagnostic> {
                 b'/' if b.get(i + 1) == Some(&b'*') => {
                     in_block_comment = Some((row, i));
                     i += 2;
+                }
+                b'"' if raw_prefix(b, i) => {
+                    // Rohtext: `R"begrenzer(` bis `)begrenzer"`.
+                    let delim_end = b[i + 1..].iter().position(|&c| c == b'(');
+                    let delim = delim_end.map(|n| &line[i + 1..i + 1 + n]);
+                    match delim.filter(|d| {
+                        d.len() <= 16
+                            && !d.bytes().any(|c| matches!(c, b' ' | b')' | b'\\' | b'\t'))
+                    }) {
+                        Some(d) => {
+                            let close = format!("){d}\"");
+                            let body = i + 1 + d.len() + 1;
+                            match line[body..].find(&close) {
+                                Some(at) => i = body + at + close.len(),
+                                None => {
+                                    raw = Some((close, row, i));
+                                    break;
+                                }
+                            }
+                        }
+                        None => i += 1,
+                    }
                 }
                 q @ (b'"' | b'\'') => {
                     // Ziffernzeichentrenner wie 1'000 sind kein Zeichenliteral.
@@ -168,6 +202,9 @@ pub fn syntax_diagnostics(file: &str, text: &str) -> Vec<Diagnostic> {
         }
     }
 
+    if let Some((_, row, col)) = raw {
+        out.push(diag(row, col, 1, "Rohtext ist nicht beendet".into(), None));
+    }
     if let Some((row, col)) = in_block_comment {
         out.push(diag(
             row,
@@ -206,6 +243,23 @@ pub fn syntax_diagnostics(file: &str, text: &str) -> Vec<Diagnostic> {
     }
     out.truncate(8);
     out
+}
+
+/// Ob das Anführungszeichen an `i` einen Rohtext einleitet: ein `R` davor, das kein Teil eines Namens ist
+/// (erlaubt sind die Vorsätze u8, u, U und L).
+fn raw_prefix(b: &[u8], i: usize) -> bool {
+    let ident = |c: u8| c.is_ascii_alphanumeric() || c == b'_';
+    if i == 0 || b[i - 1] != b'R' {
+        return false;
+    }
+    let before = &b[..i - 1];
+    let before = before
+        .strip_suffix(b"u8")
+        .or_else(|| before.strip_suffix(b"u"))
+        .or_else(|| before.strip_suffix(b"U"))
+        .or_else(|| before.strip_suffix(b"L"))
+        .unwrap_or(before);
+    before.last().is_none_or(|&c| !ident(c))
 }
 
 #[cfg(test)]
@@ -285,5 +339,43 @@ void loop() { delay(10); }
         let d = syntax_diagnostics("a.ino", "void f() {\n  Serial.println(\"ä😀\"));\n}\n");
         let line = "  Serial.println(\"ä😀\"));";
         assert_eq!(d[0].from, line.encode_utf16().count() as u32 - 2);
+    }
+
+    #[test]
+    fn raw_strings_may_span_lines_and_hold_anything() {
+        let ok = "const char P[] PROGMEM = R\"forge(<p onclick=\"a(')\">\n{ [ \" ' /* // \n)forge\";\nvoid setup() {}\n";
+        assert!(
+            syntax_diagnostics("a.ino", ok).is_empty(),
+            "{:?}",
+            syntax_diagnostics("a.ino", ok)
+        );
+        // Eigener Begrenzer, weil `)forge"` im Text vorkommt.
+        let nested = "auto s = R\"x1()forge\" )x1\"; int a[2] = {1, 2};\n";
+        assert!(syntax_diagnostics("a.ino", nested).is_empty());
+        // Vorsätze und mehrere Rohtexte in einer Zeile.
+        let two = "auto a = u8R\"(x)\" + LR\"(y)\";\n";
+        assert!(syntax_diagnostics("a.ino", two).is_empty());
+    }
+
+    #[test]
+    fn an_unterminated_raw_string_is_reported_once() {
+        let d = syntax_diagnostics(
+            "a.ino",
+            "int a;\nconst char* s = R\"forge(<p>\n<p>\nvoid f() {}\n",
+        );
+        assert_eq!(d.len(), 1, "{d:?}");
+        assert_eq!(
+            (d[0].line, d[0].message.as_str()),
+            (2, "Rohtext ist nicht beendet")
+        );
+    }
+
+    #[test]
+    fn a_name_ending_in_r_is_no_raw_string() {
+        // `FOR"` ist ein Name mit einer Zeichenkette dahinter, kein Rohtext.
+        let d = syntax_diagnostics("a.ino", "int x = FOR\"abc\";\n");
+        assert!(d.is_empty(), "{d:?}");
+        let d = syntax_diagnostics("a.ino", "int x = FOR\"abc;\n");
+        assert_eq!(d.len(), 1);
     }
 }
