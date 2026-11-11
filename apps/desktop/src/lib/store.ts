@@ -248,6 +248,8 @@ interface Store {
 let toastId = 1;
 const timers = new Map<number, ReturnType<typeof setTimeout>>();
 
+let opening = false;
+
 export const useStore = create<Store>((set, get) => ({
   ready: false,
   project: null,
@@ -305,10 +307,13 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   async openProject(path) {
-    if (get().project && !(await get().closeProject())) return false;
+    // Zwei Öffnen-Vorgänge gleichzeitig (Doppelklick, Finder) würden ihre Tabs und Puffer mischen.
+    if (opening) return false;
+    opening = true;
     try {
+      if (get().project && !(await get().closeProject())) return false;
       const project = await backend().openProject(path);
-      set({ project, tabs: [], active: null, buffers: {}, diagnostics: {} });
+      set({ project, tabs: [], active: null, buffers: {}, diagnostics: {}, output: [] });
       announceProjectSwitch();
       await get().refreshTree();
       await get().openFile(project.mainFile);
@@ -320,8 +325,11 @@ export const useStore = create<Store>((set, get) => ({
     } catch (e) {
       get().toast({ kind: "error", title: t.errors.openFailed, message: errorText(e) });
       return false;
+    } finally {
+      opening = false;
     }
   },
+
 
   async pickAndOpen() {
     const dir = await backend().pickFolder();
@@ -559,6 +567,8 @@ export const useStore = create<Store>((set, get) => ({
         const project = get().project;
         const external = !!project && path !== project.path && !path.startsWith(`${project.path}/`);
         const text = external ? await backend().readExternal(path) : await backend().readFile(path);
+        // Während des Lesens wurde das Projekt gewechselt: die Datei gehört nicht ins neue.
+        if (get().project?.path !== project?.path) return;
         set((s) => ({ buffers: { ...s.buffers, [path]: { text, saved: text, revision: 0, version: 0, readOnly: external || undefined } } }));
       } catch (e) {
         get().toast({ kind: "error", title: t.errors.readFailed(baseName(path)), message: errorText(e) });
@@ -614,7 +624,8 @@ export const useStore = create<Store>((set, get) => ({
     if (!b || b.text === b.saved) return true;
     try {
       await backend().writeFile(p, b.text);
-      set((s) => ({ buffers: { ...s.buffers, [p]: { ...s.buffers[p], saved: b.text } } }));
+      // Wurde die Datei während des Schreibens geschlossen oder umbenannt, entsteht kein leerer Puffer.
+      set((s) => (s.buffers[p] ? { buffers: { ...s.buffers, [p]: { ...s.buffers[p], saved: b.text } } } : s));
       afterSave?.(p);
       return true;
     } catch (e) {
@@ -634,11 +645,17 @@ export const useStore = create<Store>((set, get) => ({
     if (!b) return;
     try {
       const text = await backend().readFile(path);
-      if (text === b.text) {
-        set((s) => ({ buffers: { ...s.buffers, [path]: { ...b, saved: text } } }));
+      // Der Stand nach dem Lesen zählt: inzwischen kann getippt oder die Datei geschlossen worden sein.
+      const cur = get().buffers[path];
+      // Die Platte zeigt, was Forge selbst gespeichert hat: nichts zu tun.
+      if (!cur || text === cur.saved) return;
+      if (text === cur.text) {
+        set((s) => ({ buffers: { ...s.buffers, [path]: { ...cur, saved: text } } }));
         return;
       }
-      set((s) => ({ buffers: { ...s.buffers, [path]: { text, saved: text, revision: b.revision + 1, version: b.version + 1 } } }));
+      // Inzwischen getippt: der Text im Editor wird nicht stillschweigend ersetzt.
+      if (cur.text !== cur.saved) return;
+      set((s) => ({ buffers: { ...s.buffers, [path]: { ...cur, text, saved: text, revision: cur.revision + 1, version: cur.version + 1 } } }));
     } catch {
       /* Datei ist weg oder gesperrt. Der Puffer bleibt, wie er ist. */
     }
@@ -770,6 +787,9 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   toast(item) {
+    // Dieselbe Meldung noch einmal (z. B. wiederholt fehlgeschlagenes Speichern) ersetzt die alte, statt zu stapeln.
+    const twin = item.kind !== "progress" ? get().toasts.find((x) => x.kind === item.kind && x.title === item.title && x.message === item.message) : undefined;
+    if (twin) get().dismissToast(twin.id);
     const id = toastId++;
     const ttl = item.ttl ?? (item.kind === "success" || item.kind === "info" ? 4500 : undefined);
     set((s) => {

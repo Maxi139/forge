@@ -240,6 +240,17 @@ pub enum FlashResult {
     },
 }
 
+/// Löscht die NVS-Datei mit den Secrets im Klartext, sobald der Flash vorbei ist (auch bei Fehler oder Abbruch).
+struct NvsCleanup(Option<PathBuf>);
+
+impl Drop for NvsCleanup {
+    fn drop(&mut self) {
+        if let Some(p) = &self.0 {
+            let _ = std::fs::remove_file(p);
+        }
+    }
+}
+
 /// Die NVS-Partition mit den Secrets, bereit zum Schreiben.
 struct NvsPlan {
     offset: u64,
@@ -334,9 +345,35 @@ pub async fn flash_run(
         Err(SecretsError::Missing(names)) => return Ok(FlashResult::SecretsMissing { names }),
         Err(SecretsError::Other(e)) => return Err(e),
     };
+    let _nvs_cleanup = NvsCleanup(plan.as_ref().map(|p| p.path.clone()));
+
+    let cli = state.toolchain.cli()?;
+    let esptool = state.toolchain.esptool().await?;
+    let props = cli
+        .board_properties(&args.board.full())
+        .await
+        .map_err(|e| e.to_string())?;
+    let chip = props
+        .get("build.mcu")
+        .cloned()
+        .ok_or("Für dieses Board ist kein Chip bekannt.")?;
+    let baud: u32 = props
+        .get("upload.speed")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(460_800);
 
     // Das Board hat diesen Stand schon? Dann gibt es nichts zu tun. Nur bei sicherer Kennung.
-    let key = args.device_id.clone().filter(|id| !id.starts_with("port:"));
+    // Der Portname ändert sich beim Umstecken, daher fragen wir bei Port-Kennungen die MAC des Chips ab.
+    let mut resume = None;
+    let key = match args.device_id.clone().filter(|id| !id.starts_with("port:")) {
+        Some(id) => Some(id),
+        None => {
+            resume = stop_monitor(&state);
+            forge_toolchain::flash::read_mac(&esptool, &chip, &args.port)
+                .await
+                .map(|mac| format!("mac:{mac}"))
+        }
+    };
     let nvs_key = key.as_ref().map(|k| format!("{k}#nvs"));
     let firmware_current = key.as_ref().is_some_and(|k| {
         !args.force
@@ -354,26 +391,24 @@ pub async fn flash_run(
                 != Some(p.hash.as_str())
     });
     if firmware_current && !nvs_needed {
+        if let Some(spec) = resume {
+            start_monitor(&app, &state, spec);
+        }
         return Ok(FlashResult::AlreadyCurrent { build: outcome });
     }
 
-    let cli = state.toolchain.cli()?;
-    let esptool = state.toolchain.esptool().await?;
-    let props = cli
-        .board_properties(&args.board.full())
-        .await
-        .map_err(|e| e.to_string())?;
-    let chip = props
-        .get("build.mcu")
-        .cloned()
-        .ok_or("Für dieses Board ist kein Chip bekannt.")?;
-    let baud: u32 = props
-        .get("upload.speed")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(460_800);
+    // Ab hier kann der Flash halb scheitern. Der alte Stand gilt dann nicht mehr, nur ein Erfolg setzt ihn neu.
+    if let Some(k) = &key {
+        if !firmware_current {
+            store::clear_flashed_hash(&app, k);
+        }
+    }
+    if let (Some(k), true) = (&nvs_key, nvs_needed) {
+        store::clear_flashed_hash(&app, k);
+    }
 
     // Port freigeben.
-    let resume = stop_monitor(&state);
+    let resume = resume.or_else(|| stop_monitor(&state));
 
     let cancel = Jobs::begin(&state.jobs.build);
     let result = flash(
@@ -383,9 +418,11 @@ pub async fn flash_run(
             port: args.port.clone(),
             baud,
             build_dir: build_dir(&state.toolchain.cache_base(), &root, &args.board.full()),
+            // Die NVS-Partition enthält auch Daten des Sketches (z. B. HomeKit-Kopplung). Sie wird nur
+            // geschrieben, wenn sich die Secrets geändert haben oder das Gerät noch unbekannt ist.
             extra: plan
                 .iter()
-                .filter(|_| nvs_needed || !firmware_current)
+                .filter(|_| nvs_needed)
                 .map(|p| (p.offset, p.path.clone()))
                 .collect(),
             erase_all: args.erase_all,
@@ -402,6 +439,8 @@ pub async fn flash_run(
     }
 
     let flash = result.map_err(|e| e.to_string())?;
+    let key = key.or_else(|| flash.mac.as_ref().map(|mac| format!("mac:{}", mac.to_lowercase())));
+    let nvs_key = nvs_key.or_else(|| key.as_ref().map(|k| format!("{k}#nvs")));
     if let Some(key) = &key {
         if !firmware_current {
             store::set_flashed_hash(&app, key, &outcome.hash);
@@ -458,6 +497,10 @@ async fn flash_network(
             .is_some_and(|k| store::flashed_hash(app, k).as_deref() == Some(outcome.hash.as_str()))
     {
         return Ok(FlashResult::AlreadyCurrent { build: outcome });
+    }
+    // Bricht die Übertragung ab, gilt der alte Stand nicht mehr.
+    if let Some(k) = &key {
+        store::clear_flashed_hash(app, k);
     }
     let firmware = ota_firmware(&outcome.build_dir)
         .filter(|p| p.is_file())
@@ -585,6 +628,8 @@ pub fn stop_monitor(state: &AppState) -> Option<MonitorSpec> {
 }
 
 pub fn start_monitor(app: &AppHandle, state: &AppState, spec: MonitorSpec) {
+    // Den alten zuerst beenden: sonst öffnen beide kurz denselben Port, und sein „Getrennt“ käme nach dem neuen „Verbunden“.
+    let _ = stop_monitor(state);
     let handle = app.clone();
     let monitor = Monitor::start(
         MonitorConfig {
@@ -605,6 +650,7 @@ pub fn start_monitor(app: &AppHandle, state: &AppState, spec: MonitorSpec) {
     );
     if let Ok(mut g) = state.devices.monitor.lock() {
         if let Some((old, _)) = g.replace((monitor, spec)) {
+            // Nur falls gleichzeitig ein anderer Aufruf einen Monitor eingetragen hat.
             old.stop();
         }
     }

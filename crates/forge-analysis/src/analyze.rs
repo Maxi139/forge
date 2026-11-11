@@ -142,6 +142,8 @@ struct Ctx<'a> {
 }
 
 impl Ctx<'_> {
+    // Die Felder sind bewusst einzeln, ein Parameter-Struct würde an allen Regel-Aufrufen nur Rauschen machen.
+    #[allow(clippy::too_many_arguments)]
     fn diag(
         &self,
         rule: &str,

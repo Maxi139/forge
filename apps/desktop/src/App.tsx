@@ -38,7 +38,9 @@ export function App() {
         const path = await backend().takePendingOpen();
         if (path) await useStore.getState().openProject(path);
       })
-      .then(() => {
+      .catch((e) => console.error("Start unvollständig", e))
+      .finally(() => {
+        // Auch nach einem Fehler beim Start erscheint die Oberfläche, sonst bliebe nur der Startbildschirm.
         const wait = Math.max(0, MIN_SPLASH_MS - (performance.now() - started));
         setTimeout(() => setSplashDone(true), wait);
       });

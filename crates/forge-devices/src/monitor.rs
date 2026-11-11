@@ -138,6 +138,9 @@ pub fn strip_ansi(s: &str) -> String {
     out
 }
 
+/// Längste Zeile, bevor wir sie erzwungen abschließen (falsche Baudrate, Binärdaten ohne Umbruch).
+const MAX_LINE: usize = 4096;
+
 /// Setzt Bytes zu Zeilen zusammen.
 #[derive(Default)]
 pub struct LineSplitter {
@@ -152,6 +155,17 @@ impl LineSplitter {
                 lines.push(self.take());
             } else {
                 self.buf.push(b);
+                if self.buf.len() >= MAX_LINE {
+                    // Nur bis zur letzten vollständigen UTF-8-Grenze abschneiden, der Rest bleibt stehen.
+                    let cut = match std::str::from_utf8(&self.buf) {
+                        Ok(_) => self.buf.len(),
+                        Err(e) if e.valid_up_to() > 0 => e.valid_up_to(),
+                        Err(_) => self.buf.len(),
+                    };
+                    let rest = self.buf.split_off(cut);
+                    lines.push(self.take());
+                    self.buf = rest;
+                }
             }
         }
         lines
@@ -171,12 +185,22 @@ impl LineSplitter {
     }
 
     /// Nicht abgeschlossene Zeile, etwa ein Prompt ohne Zeilenumbruch.
+    /// Ein angefangenes Mehrbyte-Zeichen am Ende bleibt im Puffer, bis der Rest da ist.
     pub fn take_partial(&mut self) -> Option<String> {
         if self.buf.is_empty() {
-            None
-        } else {
-            Some(self.take())
+            return None;
         }
+        let tail = match std::str::from_utf8(&self.buf) {
+            Err(e) if e.error_len().is_none() => self.buf.split_off(e.valid_up_to()),
+            _ => Vec::new(),
+        };
+        if self.buf.is_empty() {
+            self.buf = tail;
+            return None;
+        }
+        let s = self.take();
+        self.buf = tail;
+        Some(s)
     }
 }
 
@@ -215,6 +239,17 @@ const BATCH_WINDOW: Duration = Duration::from_millis(40);
 const PARTIAL_AFTER: Duration = Duration::from_millis(150);
 const RESET_PULSE: Duration = Duration::from_millis(100);
 const RETRY: Duration = Duration::from_millis(400);
+const RETRY_MAX: Duration = Duration::from_millis(2000);
+
+/// Verwirft Befehle, die sich während der Trennung angesammelt haben (sonst würden sie veraltet
+/// nach dem Wiederverbinden gesendet). Eine Baudrate-Änderung bleibt gültig.
+fn drop_stale(rx: &mpsc::Receiver<Command>, baud: &mut u32) {
+    while let Ok(cmd) = rx.try_recv() {
+        if let Command::SetBaud(b) = cmd {
+            *baud = b;
+        }
+    }
+}
 
 impl Monitor {
     pub fn start(cfg: MonitorConfig, on_event: impl Fn(MonitorEvent) + Send + 'static) -> Monitor {
@@ -287,7 +322,11 @@ fn run(
         }
     };
 
+    let mut retry = RETRY;
     while !stop.load(Ordering::Relaxed) {
+        if !first {
+            drop_stale(&write_rx, &mut baud);
+        }
         emit_state(
             if first {
                 MonitorState::Connecting
@@ -315,10 +354,16 @@ fn run(
                     },
                     &on_event,
                 );
-                sleep_unless(&stop, RETRY);
+                sleep_unless(&stop, retry);
+                // Langsamer abfragen, damit list_devices() nicht alle 400 ms läuft.
+                retry = (retry * 2).min(RETRY_MAX);
                 continue;
             }
         };
+        retry = RETRY;
+        if !first {
+            drop_stale(&write_rx, &mut baud);
+        }
         if !cfg.reset_on_open {
             port.set_lines(false, false);
         }
@@ -468,6 +513,27 @@ fn sleep_unless(stop: &AtomicBool, d: Duration) {
 mod tests {
     use super::*;
     use std::sync::Mutex;
+
+    #[test]
+    fn splitter_caps_long_lines_on_char_boundary() {
+        let mut sp = LineSplitter::default();
+        // 3-Byte-Zeichen, damit die Grenze 4096 mitten in einem Zeichen liegt.
+        let data = "€".repeat(2000);
+        let lines = sp.push(data.as_bytes());
+        assert!(!lines.is_empty());
+        assert!(lines.iter().all(|l| !l.contains('\u{FFFD}')));
+        assert!(lines.iter().all(|l| l.len() <= MAX_LINE));
+    }
+
+    #[test]
+    fn partial_keeps_incomplete_utf8_tail() {
+        let mut sp = LineSplitter::default();
+        let euro = "€".as_bytes();
+        sp.push(&[b'a', euro[0], euro[1]]);
+        assert_eq!(sp.take_partial().as_deref(), Some("a"));
+        sp.push(&euro[2..]);
+        assert_eq!(sp.take_partial().as_deref(), Some("€"));
+    }
 
     #[test]
     fn splits_lines_and_handles_crlf_and_colors() {

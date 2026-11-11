@@ -3,7 +3,7 @@
 //! mit den Secrets.
 
 use crate::build::BuildEvent;
-use crate::process::{os, stream};
+use crate::process::{capture, os, stream};
 use crate::{CancellationToken, Error, Result};
 use forge_core::esptool::EsptoolStyle;
 use regex::Regex;
@@ -11,7 +11,7 @@ use serde::Serialize;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
 pub struct FlashRequest {
@@ -100,6 +100,34 @@ pub fn explain_failure(lines: &[String]) -> String {
         .find(|l| !l.trim().is_empty())
         .cloned()
         .unwrap_or_else(|| "Flashen ist fehlgeschlagen.".into())
+}
+
+/// Die MAC-Adresse des Chips am Port, als stabile Kennung eines Boards (der Portname ändert sich beim Umstecken).
+pub async fn read_mac(esptool: &Path, chip: &str, port: &str) -> Option<String> {
+    let tool = esptool.to_path_buf();
+    let style = tokio::task::spawn_blocking(move || EsptoolStyle::detect(&tool))
+        .await
+        .unwrap_or_default();
+    let out = capture(
+        esptool,
+        &os(&["--chip", chip, "--port", port, &style.word("read-mac")]),
+        None,
+        "en_US.UTF-8",
+        Some(Duration::from_secs(25)),
+    )
+    .await
+    .ok()?;
+    if !out.success() {
+        return None;
+    }
+    parse_mac(&format!("{}\n{}", out.stdout, out.stderr))
+}
+
+fn parse_mac(text: &str) -> Option<String> {
+    static MAC: OnceLock<Regex> = OnceLock::new();
+    re(&MAC, r"MAC:\s+([0-9a-fA-F:]{17})")
+        .captures(text)
+        .map(|c| c[1].to_lowercase())
 }
 
 pub async fn flash(
@@ -390,6 +418,13 @@ mod tests {
             "--flash-mode",
         )
         .await;
+    }
+
+    #[test]
+    fn reads_the_mac_from_esptool_output() {
+        let out = "esptool v5.3.1\nConnected to ESP32 on /dev/cu.x:\nChip type:          ESP32-D0WD-V3\nMAC:                70:4B:CA:69:3F:A0\nStub flasher running.\n";
+        assert_eq!(parse_mac(out).as_deref(), Some("70:4b:ca:69:3f:a0"));
+        assert_eq!(parse_mac("keine MAC hier"), None);
     }
 
     async fn run_fake(version: &str, accepts: &str, rejects: &str, bad_opt: &str) {

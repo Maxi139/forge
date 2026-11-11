@@ -67,7 +67,7 @@ pub fn used<'a>(headers: &BTreeSet<String>, installed: &'a [Installed]) -> Vec<&
         .iter()
         .filter(|l| l.user && l.includes.iter().any(|i| headers.contains(i)))
         .collect();
-    v.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    v.sort_by_key(|l| l.name.to_lowercase());
     v.dedup_by(|a, b| a.name == b.name);
     v
 }

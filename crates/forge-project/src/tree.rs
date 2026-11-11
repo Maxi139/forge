@@ -24,8 +24,10 @@ pub fn list_tree(root: &Path) -> Result<Vec<FileNode>> {
 
 fn walk(dir: &Path, depth: usize, budget: &mut usize) -> Result<Vec<FileNode>> {
     let mut nodes = Vec::new();
-    for entry in std::fs::read_dir(dir)? {
-        let Ok(entry) = entry else { continue };
+    // Sortiert vor dem Abstieg, damit das Budget bei großen Ordnern deterministisch aufgebraucht wird.
+    let mut entries: Vec<_> = std::fs::read_dir(dir)?.filter_map(|e| e.ok()).collect();
+    entries.sort_by_key(|e| e.file_name().to_string_lossy().to_lowercase());
+    for entry in entries {
         let name = entry.file_name().to_string_lossy().into_owned();
         if HIDDEN.contains(&name.as_str()) {
             continue;
@@ -37,7 +39,8 @@ fn walk(dir: &Path, depth: usize, budget: &mut usize) -> Result<Vec<FileNode>> {
         let path = entry.path();
         let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
         let children = if is_dir && depth < MAX_DEPTH {
-            Some(walk(&path, depth + 1, budget)?)
+            // Unlesbarer oder verschwundener Unterordner: als leer behandeln statt alles abzubrechen.
+            Some(walk(&path, depth + 1, budget).unwrap_or_default())
         } else if is_dir {
             Some(Vec::new())
         } else {
@@ -76,5 +79,19 @@ mod tests {
             .map(|n| n.name)
             .collect();
         assert_eq!(names, vec!["data", "A.h", "b.cpp"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_dir_is_empty() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let locked = tmp.path().join("zu");
+        std::fs::create_dir(&locked).unwrap();
+        std::fs::write(tmp.path().join("a.h"), "").unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let tree = list_tree(tmp.path());
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(tree.unwrap().len(), 2);
     }
 }

@@ -93,7 +93,7 @@ export function useNativeEvents() {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     void backend()
-      .onProjectChanged((paths) => {
+      .onProjectChanged(async (paths) => {
         const s = useStore.getState();
         if (!s.project) return;
         clearTimeout(timer);
@@ -105,6 +105,10 @@ export function useNativeEvents() {
             void s.reloadFromDisk(path);
           } else {
             const name = baseName(path);
+            // Auch das eigene Speichern löst den Wächter aus. Gewarnt wird nur, wenn auf der Platte wirklich etwas Fremdes steht.
+            const disk = await backend().readFile(path).catch(() => null);
+            const cur = useStore.getState().buffers[path];
+            if (disk == null || !cur || disk === cur.saved || disk === cur.text) continue;
             s.toast({
               kind: "warning",
               title: t.external.changedTitle(name),

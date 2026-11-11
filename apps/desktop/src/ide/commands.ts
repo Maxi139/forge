@@ -37,6 +37,7 @@ export function buildCommands(): RunnableCommand[] {
     hasProject && !!s.project?.package && { id: "file.exportFolder", group: g.file, label: t.commands.exportFolder, icon: "folder", run: () => void s.exportFolder() },
     hasProject && { id: "file.save", group: g.file, label: t.commands.save, icon: "check", shortcut: ["⌘", "S"], run: () => void s.save() },
     hasProject && { id: "file.saveAll", group: g.file, label: t.commands.saveAll, icon: "files", shortcut: ["⌥", "⌘", "S"], run: () => void s.saveAll() },
+    hasProject && { id: "file.home", group: g.file, label: t.commands.home, icon: "folder", run: () => void s.closeProject() },
     hasProject && !!s.active && { id: "file.close", group: g.file, label: t.commands.closeTab, icon: "close", shortcut: ["⌘", "W"], run: () => s.active && void s.closeTab(s.active) },
     hasProject && { id: "build.compile", group: g.build, label: t.commands.build, icon: "build", shortcut: ["⌘", "B"], run: () => void useHardware.getState().compile() },
     hasProject && { id: "build.flash", group: g.build, label: t.commands.flash, icon: "flash", shortcut: ["⌘", "U"], run: () => void useHardware.getState().flash() },

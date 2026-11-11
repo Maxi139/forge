@@ -82,10 +82,7 @@ pub fn user_prompt(block: &Block, redactor: &Redactor, solved: &str) -> String {
 
 /// Die Sprachangabe für den Codezaun.
 pub fn fence(block: &Block) -> &'static str {
-    match block.lang {
-        "cpp" => "cpp",
-        other => other,
-    }
+    block.lang
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

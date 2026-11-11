@@ -1,5 +1,5 @@
 use crate::state::AppState;
-use forge_project::resolve_inside;
+use forge_project::{resolve_inside, resolve_inside_strict};
 use std::path::{Path, PathBuf};
 use tauri::State;
 
@@ -11,7 +11,12 @@ fn inside(state: &State<AppState>, path: &Path) -> Result<PathBuf, String> {
     resolve_inside(&state.root()?, path).map_err(msg)
 }
 
-#[tauri::command]
+/// Für Umbenennen und Löschen: der Projektordner selbst ist kein gültiges Ziel.
+fn inside_strict(state: &State<AppState>, path: &Path) -> Result<PathBuf, String> {
+    resolve_inside_strict(&state.root()?, path).map_err(msg)
+}
+
+#[tauri::command(async)]
 pub fn file_read(state: State<AppState>, path: PathBuf) -> Result<String, String> {
     let path = inside(&state, &path)?;
     let bytes = std::fs::read(&path).map_err(msg)?;
@@ -21,7 +26,7 @@ pub fn file_read(state: State<AppState>, path: PathBuf) -> Result<String, String
 }
 
 /// Schreibt über eine temporäre Datei, damit ein Absturz nie eine halbe Datei hinterlässt.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn file_write(state: State<AppState>, path: PathBuf, text: String) -> Result<(), String> {
     let path = inside(&state, &path)?;
     let tmp = path.with_extension(format!(
@@ -30,11 +35,21 @@ pub fn file_write(state: State<AppState>, path: PathBuf, text: String) -> Result
             .map(|e| e.to_string_lossy().into_owned())
             .unwrap_or_default()
     ));
-    std::fs::write(&tmp, text).map_err(msg)?;
-    std::fs::rename(&tmp, &path).map_err(msg)
+    let result = std::fs::write(&tmp, text).and_then(|_| {
+        // Rechte der bestehenden Datei behalten (z. B. ausführbare Skripte).
+        #[cfg(unix)]
+        if let Ok(meta) = std::fs::metadata(&path) {
+            let _ = std::fs::set_permissions(&tmp, meta.permissions());
+        }
+        std::fs::rename(&tmp, &path)
+    });
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result.map_err(msg)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn file_create(state: State<AppState>, path: PathBuf, is_dir: bool) -> Result<(), String> {
     let path = inside(&state, &path)?;
     if path.exists() {
@@ -53,10 +68,10 @@ pub fn file_create(state: State<AppState>, path: PathBuf, is_dir: bool) -> Resul
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn file_rename(state: State<AppState>, from: PathBuf, to: PathBuf) -> Result<(), String> {
-    let from = inside(&state, &from)?;
-    let to = inside(&state, &to)?;
+    let from = inside_strict(&state, &from)?;
+    let to = inside_strict(&state, &to)?;
     if to.exists() {
         return Err(format!(
             "{} existiert bereits.",
@@ -67,8 +82,8 @@ pub fn file_rename(state: State<AppState>, from: PathBuf, to: PathBuf) -> Result
 }
 
 /// Verschiebt in den Papierkorb statt endgültig zu löschen.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn file_trash(state: State<AppState>, path: PathBuf) -> Result<(), String> {
-    let path = inside(&state, &path)?;
+    let path = inside_strict(&state, &path)?;
     trash::delete(path).map_err(|e| format!("Konnte nicht in den Papierkorb verschieben: {e}"))
 }

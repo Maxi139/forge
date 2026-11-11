@@ -24,7 +24,13 @@ export function Explorer() {
   const project = useStore((s) => s.project)!;
   const tree = useStore((s) => s.tree);
   const active = useStore((s) => s.active);
-  const buffers = useStore((s) => s.buffers);
+  // Nur welche Dateien ungespeichert sind, nicht ihr Text: sonst baut jeder Tastendruck den Baum neu.
+  const dirtyKey = useStore((s) => {
+    let key = "";
+    for (const p in s.buffers) if (s.buffers[p].text !== s.buffers[p].saved) key += `${p}\n`;
+    return key;
+  });
+  const dirtyFiles = useMemo(() => new Set(dirtyKey.split("\n")), [dirtyKey]);
   const diagnostics = useStore((s) => s.diagnostics);
   const openFile = useStore((s) => s.openFile);
   const refreshTree = useStore((s) => s.refreshTree);
@@ -44,8 +50,7 @@ export function Explorer() {
   const nodes = useMemo(() => {
     const convert = (n: FileNode): TreeNode => {
       if (n.isDir) return { name: n.name, children: (n.children ?? []).map(convert) };
-      const b = buffers[n.path];
-      const dirty = !!b && b.text !== b.saved;
+      const dirty = dirtyFiles.has(n.path);
       return {
         name: n.name,
         icon: iconFor(n.name),
@@ -54,7 +59,7 @@ export function Explorer() {
       };
     };
     return tree.map(convert);
-  }, [tree, buffers, errorFiles]);
+  }, [tree, dirtyFiles, errorFiles]);
 
   const pathOf = useCallback((treePath: string) => `${project.path}${treePath}`, [project.path]);
 

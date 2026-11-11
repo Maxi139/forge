@@ -3,6 +3,9 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
 
+/// Die Befehle laufen auf dem Thread-Pool: Lesen, Ändern, Schreiben darf sich nicht überlappen.
+static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 const FILE: &str = "recents.json";
 const MAX: usize = 12;
 
@@ -30,18 +33,19 @@ fn read(app: &AppHandle) -> Vec<Recent> {
 }
 
 /// Zuletzt geöffnete Projekte. Ordner und Dateien, die es nicht mehr gibt, fallen heraus.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn recent_list(app: AppHandle) -> Vec<Recent> {
     read(&app).into_iter().filter(|r| r.path.exists()).collect()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn recent_push(
     app: AppHandle,
     path: PathBuf,
     name: String,
     kind: String,
 ) -> Result<(), String> {
+    let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut list = read(&app);
     list.retain(|r| r.path != path);
     let opened_at = SystemTime::now()
@@ -59,13 +63,14 @@ pub fn recent_push(
     );
     list.truncate(MAX);
     let text = serde_json::to_string_pretty(&list).map_err(|e| e.to_string())?;
-    std::fs::write(file(&app)?, text).map_err(|e| e.to_string())
+    crate::store::atomic_write(&file(&app)?, text.as_bytes()).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn recent_remove(app: AppHandle, path: PathBuf) -> Result<(), String> {
+    let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut list = read(&app);
     list.retain(|r| r.path != path);
     let text = serde_json::to_string_pretty(&list).map_err(|e| e.to_string())?;
-    std::fs::write(file(&app)?, text).map_err(|e| e.to_string())
+    crate::store::atomic_write(&file(&app)?, text.as_bytes()).map_err(|e| e.to_string())
 }

@@ -37,9 +37,8 @@ fn result(id: Value, value: Value) -> Value {
 
 /// Beantwortet eine JSON-RPC-Nachricht. Benachrichtigungen (ohne `id`) bekommen keine Antwort.
 pub async fn handle_message(host: &dyn Host, msg: Value) -> Option<Value> {
-    let id = msg.get("id").cloned();
+    let id = msg.get("id").cloned()?;
     let method = msg.get("method").and_then(Value::as_str).unwrap_or("");
-    let Some(id) = id else { return None };
     if method.is_empty() {
         // Antworten des Clients auf Anfragen des Servers gibt es nicht.
         return None;

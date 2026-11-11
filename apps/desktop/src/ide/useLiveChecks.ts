@@ -32,7 +32,6 @@ function codeSignature(buffers: Record<string, { version: number; text: string; 
 export function useLiveChecks() {
   const project = useStore((s) => s.project);
   const active = useStore((s) => s.active);
-  const buffers = useStore((s) => s.buffers);
   const fqbn = project?.config.board.fqbn;
   const options = project?.config.board.options;
   const ready = useHardware((s) => !!s.toolchain?.esp32Core);
@@ -41,7 +40,8 @@ export function useLiveChecks() {
   const seq = useRef(0);
 
   // Strukturprüfung der aktiven Datei.
-  const activeText = active ? buffers[active]?.text : undefined;
+  // Nur der Text der aktiven Datei: ein Abo auf alle Puffer würde die ganze Oberfläche bei jedem Tastendruck neu zeichnen.
+  const activeText = useStore((s) => (s.active ? s.buffers[s.active]?.text : undefined));
   useEffect(() => {
     if (!active || activeText == null || !CODE_FILE.test(active)) return;
     const id = setTimeout(() => {
@@ -49,6 +49,8 @@ export function useLiveChecks() {
         .syntax(active, activeText)
         .then((list) => {
           const s = useStore.getState();
+          // Inzwischen weitergetippt oder die Datei geschlossen: das Ergebnis ist veraltet.
+          if (s.buffers[active]?.text !== activeText) return;
           // Hat der Compiler für diese Datei Fehler gemeldet, ist er die bessere Quelle.
           const compilerHasErrors = (s.diagnostics.compiler?.[active] ?? []).some((d) => d.severity === "error");
           s.setDiagnostics("syntax", active, compilerHasErrors ? [] : list);
@@ -85,7 +87,11 @@ export function useLiveChecks() {
         if (!isCancelled(e)) console.debug("Prüfung fehlgeschlagen", e);
       }
     }, CHECK_DELAY);
-    return () => clearTimeout(id);
+    return () => {
+      // Ein laufender Aufruf darf nach Projektwechsel oder Build-Start nichts mehr eintragen.
+      seq.current++;
+      clearTimeout(id);
+    };
   }, [project, fqbn, options, ready, activity, signature, libraries]);
 }
 
@@ -116,7 +122,10 @@ export function useLiveAnalysis() {
         console.debug("Analyse fehlgeschlagen", e);
       }
     }, ANALYSIS_DELAY);
-    return () => clearTimeout(id);
+    return () => {
+      seq.current++;
+      clearTimeout(id);
+    };
   }, [project, fqbn, options, signature]);
 }
 

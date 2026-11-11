@@ -5,13 +5,18 @@ use forge_core::utf16_col;
 use regex::RegexBuilder;
 use serde::Serialize;
 use std::collections::HashMap;
+use std::borrow::Cow;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::State;
+
+/// Jede Suche zählt hoch. Läuft eine ältere noch, merkt sie es zwischen zwei Dateien und gibt auf.
+static GENERATION: AtomicU64 = AtomicU64::new(0);
 
 const MAX_HITS: usize = 1000;
 const MAX_PER_FILE: usize = 200;
 const MAX_FILE_BYTES: u64 = 1_000_000;
-const SKIP_DIRS: &[&str] = &["node_modules", "build", "target", "data"];
+const SKIP_DIRS: &[&str] = &["node_modules", "build", "target"];
 const BINARY_EXT: &[&str] = &[
     "bin", "elf", "o", "a", "png", "jpg", "jpeg", "gif", "webp", "ico", "zip", "gz", "pdf", "woff",
     "woff2", "ttf", "otf", "map",
@@ -67,14 +72,41 @@ fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// Sucht `query` in allen Textdateien unter `root`.
-pub fn search(
+/// Bytes mit NUL in den ersten 8 KB gelten als Binärdatei, so wie bei Git.
+fn is_binary(bytes: &[u8]) -> bool {
+    bytes[..bytes.len().min(8192)].contains(&0)
+}
+
+/// Sucht `query` in allen Textdateien unter `root`, ohne Abbruch durch neuere Suchen (nur für Tests).
+#[cfg(test)]
+fn search(
     root: &Path,
     query: &str,
     case_sensitive: bool,
     whole_word: bool,
     use_regex: bool,
     overrides: &HashMap<PathBuf, String>,
+) -> Result<SearchResult, String> {
+    let own = AtomicU64::new(0);
+    search_gen(
+        root,
+        query,
+        case_sensitive,
+        whole_word,
+        use_regex,
+        overrides,
+        (&own, 0),
+    )
+}
+
+fn search_gen(
+    root: &Path,
+    query: &str,
+    case_sensitive: bool,
+    whole_word: bool,
+    use_regex: bool,
+    overrides: &HashMap<PathBuf, String>,
+    (current, generation): (&AtomicU64, u64),
 ) -> Result<SearchResult, String> {
     if query.is_empty() {
         return Ok(SearchResult {
@@ -100,14 +132,18 @@ pub fn search(
     let mut hits = Vec::new();
     let mut truncated = false;
     'files: for path in files {
-        let text = match overrides.get(&path) {
-            Some(t) => t.clone(),
-            None => match std::fs::read(&path)
-                .ok()
-                .and_then(|b| String::from_utf8(b).ok())
-            {
-                Some(t) => t,
-                None => continue,
+        // Eine neuere Suche hat begonnen: das Ergebnis dieser liest niemand mehr.
+        if current.load(Ordering::SeqCst) != generation {
+            break;
+        }
+        let text: Cow<str> = match overrides.get(&path) {
+            Some(t) => Cow::Borrowed(t.as_str()),
+            None => match std::fs::read(&path) {
+                Ok(b) if !is_binary(&b) => match String::from_utf8(b) {
+                    Ok(t) => Cow::Owned(t),
+                    Err(_) => continue,
+                },
+                _ => continue,
             },
         };
         let mut in_file = 0;
@@ -154,8 +190,17 @@ pub async fn search_run(
         .into_iter()
         .map(|(k, v)| (PathBuf::from(k), v))
         .collect();
+    let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     tokio::task::spawn_blocking(move || {
-        search(&root, &query, case_sensitive, whole_word, regex, &overrides)
+        search_gen(
+            &root,
+            &query,
+            case_sensitive,
+            whole_word,
+            regex,
+            &overrides,
+            (&GENERATION, generation),
+        )
     })
     .await
     .map_err(|e| e.to_string())?
@@ -222,6 +267,35 @@ mod tests {
         let last = umlaut.hits.last().unwrap();
         assert_eq!((last.line, last.col, last.end_col), (2, 19, 22));
         assert!(search(tmp.path(), "(", false, false, true, &HashMap::new()).is_err());
+    }
+
+    #[test]
+    fn data_dir_is_searched_and_nul_files_are_skipped() {
+        let tmp = project();
+        std::fs::create_dir_all(tmp.path().join("data")).unwrap();
+        std::fs::write(tmp.path().join("data/index.html"), "<p>led</p>").unwrap();
+        std::fs::write(tmp.path().join("blob.dat"), b"led ").unwrap();
+        let r = search(tmp.path(), "led", false, false, false, &HashMap::new()).unwrap();
+        assert!(r.hits.iter().any(|h| h.file.ends_with("data/index.html")));
+        assert!(r.hits.iter().all(|h| !h.file.ends_with("blob.dat")));
+        assert!(is_binary(b"a b") && !is_binary(b"abc"));
+    }
+
+    #[test]
+    fn superseded_search_stops() {
+        let tmp = project();
+        let current = AtomicU64::new(2);
+        let r = search_gen(
+            tmp.path(),
+            "led",
+            false,
+            false,
+            false,
+            &HashMap::new(),
+            (&current, 1),
+        )
+        .unwrap();
+        assert!(r.hits.is_empty());
     }
 
     #[test]

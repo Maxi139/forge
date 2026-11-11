@@ -207,6 +207,18 @@ pub fn sketch_supported(root: &Path) -> std::result::Result<(), String> {
     Ok(())
 }
 
+/// Bibliotheken mit verschachteltem `src/src` (z. B. HomeSpan) übersetzt fbuild nur teilweise: die Dateien
+/// in `src/` fehlen dann beim Linken. Diese Fälle übernimmt arduino-cli.
+pub fn libraries_supported(dirs: &[PathBuf]) -> std::result::Result<(), String> {
+    for d in dirs {
+        if d.join("src/src").is_dir() {
+            let name = d.file_name().unwrap_or_default().to_string_lossy();
+            return Err(format!("Bibliothek {name} mit verschachteltem src/src"));
+        }
+    }
+    Ok(())
+}
+
 fn write_if_changed(path: &Path, bytes: &[u8]) -> std::io::Result<bool> {
     if std::fs::read(path).ok().as_deref() == Some(bytes) {
         return Ok(false);
@@ -573,5 +585,18 @@ mod tests {
         std::fs::remove_file(tmp.path().join("partitions.csv")).unwrap();
         std::fs::write(tmp.path().join("b.ino"), "").unwrap();
         assert!(sketch_supported(tmp.path()).is_err());
+    }
+
+    #[test]
+    fn nested_src_libraries_stay_with_arduino_cli() {
+        let tmp = tempfile::tempdir().unwrap();
+        let flat = tmp.path().join("Flat");
+        let nested = tmp.path().join("HomeSpan");
+        std::fs::create_dir_all(flat.join("src")).unwrap();
+        std::fs::create_dir_all(nested.join("src/src/extras")).unwrap();
+        assert!(libraries_supported(std::slice::from_ref(&flat)).is_ok());
+        assert!(libraries_supported(&[flat, nested])
+            .unwrap_err()
+            .contains("HomeSpan"));
     }
 }

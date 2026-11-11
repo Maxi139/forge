@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { IconName } from "../icons";
 import { cx, fuzzy, marks } from "../util";
 import { Kbd } from "./Controls";
@@ -218,6 +218,7 @@ export interface DialogProps {
 
 export function Dialog({ title, children, footer, icon, tone, onClose, inline, width, className }: DialogProps) {
   const titleId = useId();
+  const boxRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (inline || !onClose) return;
     const onKey = (e: globalThis.KeyboardEvent) => {
@@ -227,8 +228,47 @@ export function Dialog({ title, children, footer, icon, tone, onClose, inline, w
     return () => window.removeEventListener("keydown", onKey);
   }, [inline, onClose]);
 
+  // Der Fokus bleibt im Dialog und kehrt beim Schließen dorthin zurück, wo er vorher war.
+  useEffect(() => {
+    if (inline) return;
+    const box = boxRef.current;
+    if (!box) return;
+    const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusable = () =>
+      [...box.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter(
+        (el) => !el.hasAttribute("disabled") && el.getClientRects().length > 0,
+      );
+    // Felder mit autoFocus haben den Fokus schon. Sonst bekommt ihn der Dialog selbst.
+    if (!box.contains(document.activeElement)) box.focus();
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const list = focusable();
+      if (!list.length) return e.preventDefault();
+      const first = list[0];
+      const last = list[list.length - 1];
+      const at = document.activeElement;
+      if (!box.contains(at)) {
+        e.preventDefault();
+        first.focus();
+      } else if (e.shiftKey && (at === first || at === box)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && at === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (before?.isConnected) before.focus();
+    };
+  }, [inline]);
+
   const box = (
     <div
+      ref={boxRef}
+      tabIndex={-1}
       className={cx("fg-dialog", className)}
       role="dialog"
       aria-modal={inline ? undefined : true}

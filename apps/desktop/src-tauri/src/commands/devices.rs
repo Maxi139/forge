@@ -13,7 +13,7 @@ fn with_network(state: &AppState, mut usb: Vec<DeviceInfo>) -> Vec<DeviceInfo> {
     usb
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn devices_list(state: State<AppState>) -> Vec<DeviceInfo> {
     let fresh = list_devices();
     if let Ok(mut g) = state.devices.list.lock() {
@@ -88,7 +88,7 @@ pub async fn device_probe(state: State<'_, AppState>, port: String) -> Result<Ch
     .map_err(|e| e.to_string())?
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn monitor_start(
     app: AppHandle,
     state: State<AppState>,
@@ -107,7 +107,7 @@ pub fn monitor_start(
     );
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn monitor_stop(state: State<AppState>) {
     let _ = stop_monitor(&state);
 }
@@ -189,7 +189,7 @@ fn ota_account(device_id: &str) -> String {
 }
 
 /// Ob für ein Netzwerkgerät ein OTA-Passwort im Schlüsselbund liegt.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ota_password_status(device_id: String) -> bool {
     super::secrets::store()
         .get(&ota_account(&device_id))
@@ -199,7 +199,7 @@ pub fn ota_password_status(device_id: String) -> bool {
 }
 
 /// Speichert das OTA-Passwort eines Geräts im Schlüsselbund, ohne Wert löscht es den Eintrag.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ota_password_set(device_id: String, password: Option<String>) -> Result<(), String> {
     let store = super::secrets::store();
     let account = ota_account(&device_id);
@@ -218,7 +218,7 @@ pub(crate) fn ota_password(device_id: &str) -> Option<String> {
 }
 
 /// Schreibt einen Text an einen Ort, den der Nutzer im Speichern-Dialog gewählt hat (Monitor-Log, Plotter-CSV).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn export_write(path: std::path::PathBuf, text: String) -> Result<(), String> {
     std::fs::write(&path, text).map_err(|e| format!("Speichern fehlgeschlagen: {e}"))
 }

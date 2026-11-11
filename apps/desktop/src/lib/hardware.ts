@@ -20,7 +20,7 @@ import type {
 } from "./backend";
 import type { Diagnostic } from "./diagnostics";
 import { boardForChip, chipFamily, chipOf, familyOfFqbn } from "./boards";
-import { baseName, errorText, isCancelled, useStore } from "./store";
+import { baseName, errorText, isCancelled, type OutputLine, useStore } from "./store";
 
 export type Activity = "idle" | "checking" | "compiling" | "flashing";
 
@@ -224,7 +224,7 @@ export const useHardware = create<Hardware>((set, get) => ({
       b.onDevicesChanged((list) => applyDevices(list)),
       b.onBuildEvent((e) => {
         if (e.kind === "output") {
-          useStore.getState().appendOutput([{ text: e.line, kind: e.level === "err" ? "err" : e.level === "warn" ? "warn" : e.level === "cmd" ? "cmd" : undefined }]);
+          queueOutput({ text: e.line, kind: e.level === "err" ? "err" : e.level === "warn" ? "warn" : e.level === "cmd" ? "cmd" : undefined });
           return;
         }
         const cur = get().build;
@@ -359,8 +359,15 @@ export const useHardware = create<Hardware>((set, get) => ({
   async compile(opts) {
     const s = useStore.getState();
     const board = get().board();
-    if (!s.project || !board || get().activity !== "idle" || !get().ensureToolchain()) return;
-    if (!(await s.saveAll()) || !(await settleWebSync())) return;
+    if (!s.project || !board || get().activity !== "idle" || starting || !get().ensureToolchain()) return;
+    // Bis der Build läuft, vergeht Zeit fürs Speichern. Ein zweiter Druck auf ⌘B startet in der Lücke keinen zweiten.
+    starting = true;
+    try {
+      if (!(await s.saveAll()) || !(await settleWebSync())) return;
+    } finally {
+      starting = false;
+    }
+    if (get().activity !== "idle") return;
     const name = s.project.name;
     set({ activity: "compiling", build: { mode: "compile", status: "running", stage: 0, progress: 0, detail: "Starte", title: t.hardware.buildStart(name) } });
     progressToast = s.toast({ kind: "progress", title: t.hardware.buildStart(name), message: "", progress: 0, onCancel: () => void get().cancel() });
@@ -377,13 +384,19 @@ export const useHardware = create<Hardware>((set, get) => ({
   async flash(opts) {
     const s = useStore.getState();
     const board = get().board();
-    if (!s.project || !board || get().activity !== "idle" || !get().ensureToolchain()) return;
+    if (!s.project || !board || get().activity !== "idle" || starting || !get().ensureToolchain()) return;
     const device = get().selectedDevice();
     if (!device) {
       s.toast({ kind: "warning", title: t.hardware.noBoardTitle, message: t.hardware.noBoardText, actions: [{ label: t.hardware.rescan, run: () => void get().refreshDevices() }] });
       return;
     }
-    if (!(await s.saveAll()) || !(await settleWebSync())) return;
+    starting = true;
+    try {
+      if (!(await s.saveAll()) || !(await settleWebSync())) return;
+    } finally {
+      starting = false;
+    }
+    if (get().activity !== "idle") return;
     const chip = chipOf(board.fqbn);
     set({ activity: "flashing", build: { mode: "flash", status: "running", stage: 0, progress: 0, detail: "Starte", title: t.hardware.flashStart(chip), target: baseName(device.port) } });
     progressToast = s.toast({ kind: "progress", title: t.hardware.flashStart(chip), message: "", progress: 0, onCancel: () => void get().cancel() });
@@ -700,6 +713,26 @@ function applyDiagnostics(list: Diagnostic[]) {
 
 export function revealDiagnostic(d: Diagnostic) {
   window.dispatchEvent(new CustomEvent("forge:reveal", { detail: d }));
+}
+
+let starting = false;
+
+let outputQueue: OutputLine[] = [];
+let outputTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Der Compiler schreibt tausende Zeilen. Sie gehen gebündelt in den Store, nicht jede einzeln. */
+function queueOutput(line: OutputLine) {
+  outputQueue.push(line);
+  outputTimer ??= setTimeout(flushOutput, 50);
+}
+
+function flushOutput() {
+  if (outputTimer) clearTimeout(outputTimer);
+  outputTimer = null;
+  if (!outputQueue.length) return;
+  const lines = outputQueue;
+  outputQueue = [];
+  useStore.getState().appendOutput(lines);
 }
 
 function pushLines(lines: MonitorLine[]) {

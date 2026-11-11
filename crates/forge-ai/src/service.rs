@@ -144,7 +144,8 @@ pub async fn review_blocks(
     }
 
     let sem = Arc::new(Semaphore::new(PARALLEL));
-    let mut set: JoinSet<(Block, Result<(Review, u64), AiError>)> = JoinSet::new();
+    type Done = (Block, Result<(Review, u64), AiError>);
+    let mut set: JoinSet<Done> = JoinSet::new();
     let mut queue = pending.into_iter();
     let mut in_flight = 0usize;
 

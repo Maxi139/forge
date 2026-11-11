@@ -101,6 +101,9 @@ pub async fn capture(
     })
 }
 
+/// Längste Zeile, die wir am Stück halten.
+const MAX_LINE: usize = 16 * 1024;
+
 /// Zerlegt einen Bytestrom an `\n` und `\r`. esptool überschreibt Fortschrittszeilen mit `\r`.
 async fn pump<R: AsyncRead + Unpin>(
     mut reader: R,
@@ -122,6 +125,11 @@ async fn pump<R: AsyncRead + Unpin>(
                 }
             } else {
                 line.push(b);
+                // Binärausgabe ohne Zeilenumbruch darf den Speicher nicht füllen.
+                if line.len() >= MAX_LINE {
+                    let _ = tx.send((stream, String::from_utf8_lossy(&line).into_owned()));
+                    line.clear();
+                }
             }
         }
     }

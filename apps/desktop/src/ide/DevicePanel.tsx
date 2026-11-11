@@ -14,8 +14,10 @@ const FLASH_SIZES: Record<string, number> = { "2M": 2, "4M": 4, "8M": 8, "16M": 
 
 export function DevicePanel() {
   const project = useStore((s) => s.project);
-  const buffers = useStore((s) => s.buffers);
-  const mainText = useStore((s) => (s.project ? s.buffers[s.project.mainFile]?.text : undefined));
+  // Die Pinbelegung zeigt nur der ESP32-S3. Bei anderen Boards muss das Panel nicht jeden Tastendruck mitlesen.
+  const needsPins = chipOf(project?.config.board.fqbn ?? "") === "ESP32-S3";
+  const buffers = useStore((s) => (needsPins ? s.buffers : null));
+  const mainText = useStore((s) => (needsPins && s.project ? s.buffers[s.project.mainFile]?.text : undefined));
   const device = useHardware((s) => s.devices.find((d) => d.id === s.selectedDeviceId) ?? null);
   const identity = useHardware((s) => (s.selectedDeviceId ? s.identity[s.selectedDeviceId] : undefined));
   const identifying = useHardware((s) => s.identifying !== null && s.identifying === s.selectedDeviceId);
@@ -37,6 +39,7 @@ export function DevicePanel() {
 
   // Pins aus allen offenen Dateien.
   const pins = useMemo(() => {
+    if (!buffers) return usedPins("");
     const all = Object.values(buffers).filter((b) => !b.readOnly).map((b) => b.text).join("\n");
     return usedPins(all || mainText || "");
   }, [buffers, mainText]);

@@ -232,7 +232,7 @@ fn parse_num(s: &str) -> Option<u64> {
         'M' | 'm' => (&s[..s.len() - 1], 1024 * 1024),
         _ => (s, 1),
     };
-    num.trim().parse::<u64>().ok().map(|n| n * mult)
+    num.trim().parse::<u64>().ok().and_then(|n| n.checked_mul(mult))
 }
 
 /// Liest `partitions.csv` aus dem Build-Ordner. Fehlende Offsets ergeben sich aus der Reihenfolge.
@@ -250,7 +250,7 @@ pub fn parse_partitions(csv: &str) -> Vec<PartitionInfo> {
         }
         let size = parse_num(f[4]).unwrap_or(0);
         let offset = parse_num(f[3]).unwrap_or(next);
-        next = offset + size;
+        next = offset.saturating_add(size);
         out.push(PartitionInfo {
             name: f[0].to_string(),
             kind: f[1].to_string(),
@@ -290,29 +290,65 @@ async fn sketch_dir(root: &Path, cache: &Path) -> Result<PathBuf> {
 }
 
 /// Spiegelt Dateien und Unterordner (etwa `src/`) und kopiert nur, was sich geändert hat.
-/// Versteckte Einträge und `build` bleiben außen vor.
+/// Versteckte Einträge und `build` bleiben außen vor. Im Spiegel verwaiste Einträge (umbenannte oder
+/// gelöschte Quellen) werden entfernt, sonst würden sie weiter mitkompiliert. Der Spiegelordner
+/// gehört allein dieser Funktion, Build-Ausgaben liegen woanders.
 fn mirror_dir(from: &Path, to: &Path) -> Result<()> {
     std::fs::create_dir_all(to)?;
+    let mut keep: std::collections::HashSet<std::ffi::OsString> = Default::default();
     for entry in std::fs::read_dir(from)?.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
         let path = entry.path();
         if name.starts_with('.') || name == "build" {
             continue;
         }
+        let Ok(ft) = entry.file_type() else { continue };
+        // Symlinks auf Ordner nicht verfolgen (Endlosschleife); Symlinks auf Dateien werden kopiert.
+        let is_dir = if ft.is_symlink() {
+            if path.is_dir() {
+                continue;
+            }
+            false
+        } else {
+            ft.is_dir()
+        };
         let target = to.join(&name);
-        if path.is_dir() {
+        keep.insert(entry.file_name());
+        // Typwechsel (Datei wurde Ordner oder umgekehrt): altes Ziel erst entfernen.
+        if let Ok(tm) = std::fs::symlink_metadata(&target) {
+            if tm.is_dir() != is_dir || tm.file_type().is_symlink() {
+                remove_entry(&target);
+            }
+        }
+        if is_dir {
             mirror_dir(&path, &target)?;
             continue;
         }
-        let same = match (std::fs::read(&path), std::fs::read(&target)) {
-            (Ok(a), Ok(b)) => a == b,
+        let same = match (std::fs::metadata(&path), std::fs::metadata(&target)) {
+            (Ok(a), Ok(b)) if a.len() == b.len() => {
+                matches!((std::fs::read(&path), std::fs::read(&target)), (Ok(x), Ok(y)) if x == y)
+            }
             _ => false,
         };
         if !same {
             std::fs::copy(&path, &target)?;
         }
     }
+    for entry in std::fs::read_dir(to)?.flatten() {
+        if !keep.contains(&entry.file_name()) {
+            remove_entry(&entry.path());
+        }
+    }
     Ok(())
+}
+
+fn remove_entry(p: &Path) {
+    let is_dir = std::fs::symlink_metadata(p).is_ok_and(|m| m.is_dir());
+    let _ = if is_dir {
+        std::fs::remove_dir_all(p)
+    } else {
+        std::fs::remove_file(p)
+    };
 }
 
 fn text_diagnostics(lines: &[String], root: &Path, mirror: &Path) -> Vec<Diagnostic> {
@@ -322,6 +358,8 @@ fn text_diagnostics(lines: &[String], root: &Path, mirror: &Path) -> Vec<Diagnos
         r"^(.+?):(\d+):(\d+): (fatal error|error|warning): (.*)$",
     );
     let mut out = Vec::new();
+    // Jede Datei nur einmal lesen, auch bei vielen Meldungen.
+    let mut cache: HashMap<String, String> = HashMap::new();
     for l in lines {
         let Some(c) = re.captures(l) else { continue };
         let file = c[1].replace(
@@ -333,13 +371,13 @@ fn text_diagnostics(lines: &[String], root: &Path, mirror: &Path) -> Vec<Diagnos
         }
         let line_no: u32 = c[2].parse().unwrap_or(1);
         let col: usize = c[3].parse().unwrap_or(1);
-        let text = std::fs::read_to_string(&file)
-            .ok()
-            .and_then(|t| {
-                t.split('\n')
-                    .nth((line_no as usize).saturating_sub(1))
-                    .map(str::to_string)
-            })
+        let content = cache
+            .entry(file.clone())
+            .or_insert_with(|| std::fs::read_to_string(&file).unwrap_or_default());
+        let text = content
+            .split('\n')
+            .nth((line_no as usize).saturating_sub(1))
+            .map(str::to_string)
             .unwrap_or_default();
         let from = utf16_col(&text, col.saturating_sub(1));
         out.push(Diagnostic {
@@ -363,6 +401,26 @@ fn text_diagnostics(lines: &[String], root: &Path, mirror: &Path) -> Vec<Diagnos
 }
 
 fn linker_error(lines: &[String]) -> Option<String> {
+    if lines
+        .iter()
+        .any(|l| l.contains("Sketch too big") || l.contains("exceeds available space"))
+    {
+        let flash = parse_sizes(lines).into_iter().find(|s| s.label == "Flash");
+        let detail = flash
+            .filter(|s| s.total > 0)
+            .map(|s| {
+                format!(
+                    " ({} von {} Bytes, {} %)",
+                    s.used,
+                    s.total,
+                    s.used * 100 / s.total
+                )
+            })
+            .unwrap_or_default();
+        return Some(format!(
+            "Das Programm ist zu groß für den Flash-Speicher{detail}. Wähle in den Board-Optionen ein größeres Partitionsschema, z. B. „Huge APP“."
+        ));
+    }
     let l = lines.iter().find(|l| {
         l.contains("undefined reference to")
             || l.contains("multiple definition of")
@@ -500,12 +558,16 @@ pub async fn build(
 
     // fbuild, wenn es das Board kann. Jeder Fehler dort führt zu arduino-cli, das die genauen Meldungen liefert.
     if let (Some(fb), Some(board)) = (&req.fbuild, fbuild::board_for(&req.fqbn)) {
-        match fbuild::sketch_supported(&req.root) {
+        match fbuild::sketch_supported(&req.root)
+            .and_then(|()| fbuild::libraries_supported(&req.library_dirs))
+        {
             Err(why) => emit(BuildEvent::Output {
                 line: format!("fbuild übersprungen ({why}). Weiter mit arduino-cli."),
                 level: "info".into(),
             }),
             Ok(()) => {
+                // Ab hier können halbe Binärdateien entstehen: alte Meta nicht mehr als "unverändert" gelten lassen.
+                let _ = std::fs::remove_file(&meta_path);
                 let result = fbuild::compile(
                     &fbuild::FbuildRequest {
                         fbuild: fb.clone(),
@@ -554,7 +616,8 @@ pub async fn build(
         }
     }
 
-    // Kompilieren.
+    // Kompilieren. Meta erst nach Erfolg neu schreiben, ein Abbruch darf nicht "unverändert" melden.
+    let _ = std::fs::remove_file(&meta_path);
     let sketch = sketch_dir(&req.root, &cache).await?;
     let total_steps = meta
         .as_ref()
@@ -805,12 +868,41 @@ mod tests {
     }
 
     #[test]
+    fn mirror_prunes_removed_sources() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (from, to) = (tmp.path().join("a"), tmp.path().join("b"));
+        std::fs::create_dir_all(from.join("src")).unwrap();
+        std::fs::write(from.join("a.ino"), "x").unwrap();
+        std::fs::write(from.join("alt.cpp"), "y").unwrap();
+        std::fs::write(from.join("src/m.cpp"), "z").unwrap();
+        mirror_dir(&from, &to).unwrap();
+        std::fs::remove_file(from.join("alt.cpp")).unwrap();
+        std::fs::remove_dir_all(from.join("src")).unwrap();
+        std::fs::write(from.join("neu.cpp"), "n").unwrap();
+        mirror_dir(&from, &to).unwrap();
+        assert!(to.join("a.ino").is_file() && to.join("neu.cpp").is_file());
+        assert!(!to.join("alt.cpp").exists() && !to.join("src").exists());
+    }
+
+    #[test]
     fn linker_messages_are_readable() {
         let l = vec!["/x/ld: sketch.o:(.text+0x10): undefined reference to `foo(int)'".to_string()];
         assert_eq!(
             linker_error(&l).unwrap(),
             "Linker: „foo(int)“ ist nirgends definiert."
         );
+    }
+
+    #[test]
+    fn oversized_sketch_points_to_the_partition_scheme() {
+        let l = vec![
+            "Sketch too big; see https://support.arduino.cc/hc/en-us/articles/360013825179 for tips on reducing it.".to_string(),
+            "Sketch uses 1416964 bytes (108%) of program storage space. Maximum is 1310720 bytes.".to_string(),
+            "Error during build: text section exceeds available space in board".to_string(),
+        ];
+        let e = linker_error(&l).unwrap();
+        assert!(e.contains("1416964 von 1310720 Bytes, 108 %"), "{e}");
+        assert!(e.contains("Huge APP"));
     }
 }
 

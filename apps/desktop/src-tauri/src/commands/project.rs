@@ -29,8 +29,9 @@ pub async fn project_open(
     if forge_package::is_package(&path) && path.is_file() {
         return package::open_package(&app, &state, &path).await;
     }
-    package::end_session(&app).await;
+    // Erst prüfen, dann die alte Sitzung beenden: scheitert das Öffnen, bleibt das alte Projekt speicherbar.
     let mut info = open(&path).map_err(msg)?;
+    package::end_session(&app).await;
     apply_sketch_board(&app, &mut info);
     state.set_root(info.path.clone());
     state.watcher.watch(app, info.path.clone());
@@ -44,7 +45,7 @@ pub async fn project_create(
     state: State<'_, AppState>,
     request: CreateRequest,
 ) -> Result<ProjectInfo, String> {
-    package::end_session(&app).await;
+    // Die alte Sitzung beendet `open_package`, sobald die neue Datei sicher geöffnet wird.
     forge_project::validate_name(&request.name).map_err(msg)?;
     let file = request
         .parent
@@ -88,7 +89,6 @@ pub async fn sketch_create(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<ProjectInfo, String> {
-    package::end_session(&app).await;
     let sketches = default_projects_dir(app.clone())?.join("Sketches");
     std::fs::create_dir_all(&sketches).map_err(msg)?;
     let id = forge_project::new_id(&sketches);
@@ -102,6 +102,8 @@ pub async fn sketch_create(
     .map_err(msg)?;
     let file = sketches.join(format!("{}.{ext}", info.name));
     info.package = Some(file.clone());
+    // Erst jetzt steht der neue Sketch fest, also endet die alte Sitzung erst jetzt.
+    package::end_session(&app).await;
     package::set_session(
         &state,
         PackageSession {
@@ -119,7 +121,7 @@ pub async fn sketch_create(
     Ok(info)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn project_tree(state: State<AppState>) -> Result<Vec<FileNode>, String> {
     list_tree(&state.root()?).map_err(msg)
 }
@@ -279,7 +281,7 @@ pub async fn project_rename(
         super::boardcfg::move_sketch_board(&app, &old_root, &new_root);
         let new_id = forge_project::secrets_id(&new_root);
         if new_id != old_id {
-            let _ = tokio::task::spawn_blocking(move || {
+            let migrated = tokio::task::spawn_blocking(move || {
                 forge_secrets::keychain::migrate_project(
                     &super::secrets::store(),
                     &old_id,
@@ -288,6 +290,12 @@ pub async fn project_rename(
                 )
             })
             .await;
+            // Umbenennen gelingt trotzdem, die Secrets bleiben dann unter der alten Kennung.
+            match migrated {
+                Ok(Ok(_)) => {}
+                Ok(Err(e)) => log::warn!("Secrets ließen sich nicht umziehen: {e}"),
+                Err(e) => log::warn!("Secrets ließen sich nicht umziehen: {e}"),
+            }
         }
 
         if let Ok(mut g) = state.package.lock() {

@@ -10,11 +10,15 @@
   --fg-raster: radial-gradient(circle at center, var(--trace) 1.1px, transparent 1.6px);
 }
 [data-theme="light"] { --fg-scrim: rgba(21, 24, 27, .28); }
+/* Thema „System“ setzt kein data-theme. Dann entscheidet das Betriebssystem. */
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { --fg-scrim: rgba(21, 24, 27, .28); } }
 
 body { margin: 0; background: var(--surface); color: var(--ink); font-family: var(--font-sans); font-size: 13px; line-height: 20px; -webkit-font-smoothing: antialiased; }
 .fg-icon { flex: none; display: block; }
 .fg-overline { font-size: 11px; line-height: 16px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-muted); }
 .fg-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+/* Jedes bedienbare Element zeigt den Tastaturfokus. Genauere Regeln weiter unten gehen vor. */
+:where(button, a, [role="button"], [tabindex="0"]):focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 :where(.fg-btn, .fg-tab, .fg-tree-row, .fg-act, .fg-status-item, .fg-toast-close, .fg-tab-close, .fg-pin):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
 /* Button */
@@ -68,6 +72,7 @@ body { margin: 0; background: var(--surface); color: var(--ink); font-family: va
 .fg-tabs--editor .fg-tab { display: flex; align-items: center; gap: 7px; padding: 0 6px 0 12px; color: var(--ink-muted); border-right: 1px solid var(--line); font-size: 12.5px; cursor: pointer; white-space: nowrap; position: relative; margin-bottom: -1px; transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease); }
 .fg-tabs--editor .fg-tab:hover { color: var(--ink); }
 .fg-tabs--editor .fg-tab.is-active { background: var(--surface); color: var(--ink); box-shadow: inset 0 1.5px 0 var(--glut); }
+.fg-tabs--editor .fg-tab-label { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
 .fg-tab.has-problems .fg-tab-label { color: var(--error); }
 .fg-tab-close { position: relative; display: grid; place-items: center; width: 18px; height: 18px; border: 0; padding: 0; border-radius: var(--radius-xs); background: transparent; color: var(--ink-muted); cursor: pointer; }
 .fg-tab-close .fg-icon { opacity: 0; transition: opacity var(--dur-1); }
@@ -162,16 +167,17 @@ button.fg-status-item:hover { background: var(--surface-hover); color: var(--ink
 
 /* Dialog */
 .fg-scrim { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px; background: var(--fg-scrim); animation: fg-fade var(--dur-2) var(--ease); z-index: 50; }
-.fg-dialog { width: 440px; max-width: 100%; background: var(--surface-raised); border-radius: var(--radius-lg); box-shadow: var(--shadow-pop); overflow: hidden; animation: fg-pop var(--dur-2) var(--ease); }
-.fg-dialog-head { display: flex; align-items: center; gap: 10px; padding: 20px 24px 0; }
+.fg-dialog { width: 440px; max-width: 100%; background: var(--surface-raised); border-radius: var(--radius-lg); box-shadow: var(--shadow-pop); overflow: hidden; display: flex; flex-direction: column; max-height: 100%; animation: fg-pop var(--dur-2) var(--ease); }
+.fg-dialog:focus { outline: none; }
+.fg-dialog-head { flex: none; display: flex; align-items: center; gap: 10px; padding: 20px 24px 0; }
 .fg-dialog-icon { display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--radius-sm); background: var(--surface-active); color: var(--ink-muted); flex: none; }
 .fg-dialog-icon.is-glut { background: var(--glut-soft); color: var(--glut); }
 .fg-dialog-icon.is-error { background: var(--error-soft); color: var(--error); }
 .fg-dialog-icon.is-warning { background: var(--warning-soft); color: var(--warning); }
 .fg-dialog-title { margin: 0; font-size: 17px; line-height: 24px; font-weight: 600; letter-spacing: -.005em; color: var(--ink); }
-.fg-dialog-body { padding: 10px 24px 20px; color: var(--ink-muted); }
+.fg-dialog-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 10px 24px 20px; color: var(--ink-muted); }
 .fg-dialog-body > p { margin: 0 0 12px; }
-.fg-dialog-foot { display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); background: var(--surface-panel); }
+.fg-dialog-foot { flex: none; display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); background: var(--surface-panel); }
 .fg-dialog-foot .fg-spacer { flex: 1; }
 
 /* Input, Select */
@@ -215,6 +221,10 @@ button.fg-status-item:hover { background: var(--surface-hover); color: var(--ink
 /* CodeEditor */
 .fg-editor { position: relative; background: var(--surface); font-family: var(--font-mono); font-size: 13.5px; line-height: 22px; color: var(--syn-variable); overflow: auto; padding: 8px 0 12px; font-variant-ligatures: none; tab-size: 2; }
 .fg-crumbs { display: flex; align-items: center; gap: 4px; height: 26px; padding: 0 16px; font-family: var(--font-sans); font-size: 12px; color: var(--ink-muted); background: var(--surface); border-bottom: 1px solid var(--line); }
+.fg-crumbs { min-width: 0; overflow: hidden; white-space: nowrap; }
+.fg-crumbs > span > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.fg-crumbs > span:first-child > span, .fg-crumbs > .fg-btn, .fg-crumbs > .fg-badge { flex: none; }
+.fg-crumbs .fg-icon { flex: none; }
 .fg-crumbs .fg-icon { color: var(--ink-faint); }
 .fg-crumbs span:last-child { color: var(--ink); }
 .fg-line { display: flex; min-height: 22px; }
@@ -307,7 +317,7 @@ button.fg-status-item:hover { background: var(--surface-hover); color: var(--ink
 
 /* Plotter */
 .fg-plot { display: flex; flex-direction: column; min-height: 0; height: 100%; background: var(--surface); }
-.fg-plot-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; min-height: 34px; padding-top: 3px; padding-bottom: 3px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--line); background: var(--surface-panel); flex: none; }
+.fg-plot-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; min-height: 34px; padding: 3px 8px 3px 12px; border-bottom: 1px solid var(--line); background: var(--surface-panel); flex: none; }
 .fg-legend { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--ink-muted); white-space: nowrap; }
 .fg-legend .fg-mono { color: var(--ink); font-size: 11.5px; min-width: 44px; }
 .fg-sw { width: 12px; height: 3px; border-radius: var(--radius-pill); }

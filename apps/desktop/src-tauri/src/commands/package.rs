@@ -50,7 +50,6 @@ pub async fn open_package(
     state: &AppState,
     path: &Path,
 ) -> Result<ProjectInfo, String> {
-    end_session(app).await;
     let package = path.canonicalize().map_err(msg)?;
     let work = workspaces_dir(app)?;
 
@@ -69,6 +68,9 @@ pub async fn open_package(
             "Die Projektdatei enthält einen ungültigen Namen oder eine ungültige Kennung.".into(),
         );
     }
+    // Erst nach der Prüfung: eine kaputte Datei lässt das offene Projekt unberührt. Vor dem Entpacken,
+    // weil das den Arbeitsordner ersetzen kann, den die alte Sitzung noch speichert.
+    end_session(app).await;
     let ws = work.join(&manifest.id);
     let dir = ws.join(&manifest.name);
 
@@ -384,7 +386,7 @@ async fn resolve_toolchain(
             });
         }
     }
-    libraries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    libraries.sort_by_key(|a| a.name.to_lowercase());
 
     let core_id = cfg
         .board

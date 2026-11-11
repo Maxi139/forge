@@ -211,13 +211,22 @@ function Problems({ list, onReveal }: { list: Diagnostic[]; onReveal(d: Diagnost
 function Output() {
   const lines = useStore((s) => s.output);
   const ref = useRef<HTMLPreElement>(null);
+  // Wer nach oben geblättert hat, liest. Dann springt die Ausgabe nicht mehr ans Ende.
+  const pinned = useRef(true);
   useEffect(() => {
     const el = ref.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && pinned.current) el.scrollTop = el.scrollHeight;
   }, [lines.length]);
   if (!lines.length) return <div className="ide-bottom-empty">{t.panels.noOutput}</div>;
   return (
-    <pre className="output" ref={ref}>
+    <pre
+      className="output"
+      ref={ref}
+      onScroll={(e) => {
+        const el = e.currentTarget;
+        pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 32;
+      }}
+    >
       {lines.map((l, i) => (
         <div key={i} className={l.kind}>
           {l.text}

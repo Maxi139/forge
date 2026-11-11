@@ -52,7 +52,7 @@ pub fn find_esptool(data_dir: &Path) -> Option<PathBuf> {
         .map(|e| e.path())
         .filter(|p| p.is_dir())
         .collect();
-    versions.sort_by(|a, b| version_key(b).cmp(&version_key(a)));
+    versions.sort_by_key(|v| std::cmp::Reverse(version_key(v)));
     versions
         .into_iter()
         .map(|v| v.join("esptool"))

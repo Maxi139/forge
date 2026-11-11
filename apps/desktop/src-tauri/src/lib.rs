@@ -177,18 +177,22 @@ pub fn run() {
                 for url in urls {
                     if let Ok(path) = url.to_file_path() {
                         let state = app.state::<state::AppState>();
-                        *state.pending_open.lock().unwrap() = Some(path.clone());
+                        *state.pending_open.lock().unwrap_or_else(|e| e.into_inner()) = Some(path.clone());
                         let _ = app.emit("open-path", path);
                     }
                 }
             }
             #[cfg(not(target_os = "macos"))]
             let _ = (&app, &event);
-            // Offene Änderungen gehören in die Projektdatei, bevor die App endet.
-            if matches!(
-                event,
-                tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
-            ) {
+            // Offene Änderungen gehören in die Projektdatei, bevor die App endet. Nur einmal: auf
+            // `ExitRequested` folgt immer `Exit`. Dort enden auch laufende Aufträge und der Monitor.
+            if matches!(event, tauri::RunEvent::Exit) {
+                let state = app.state::<state::AppState>();
+                let jobs = &state.jobs;
+                for slot in [&jobs.check, &jobs.build, &jobs.library, &jobs.ai] {
+                    state::Jobs::cancel(slot);
+                }
+                let _ = commands::build::stop_monitor(&state);
                 tauri::async_runtime::block_on(package::flush(app));
             }
         });

@@ -121,7 +121,7 @@ fn is_ino(p: &Path) -> bool {
     p.extension().is_some_and(|e| e.eq_ignore_ascii_case("ino"))
 }
 
-/// Verhindert, dass Dateioperationen aus dem Projektordner ausbrechen.
+/// Verhindert, dass Dateioperationen aus dem Projektordner ausbrechen (auch über Symlinks).
 pub fn resolve_inside(root: &Path, relative_or_absolute: &Path) -> Result<PathBuf> {
     let joined = if relative_or_absolute.is_absolute() {
         relative_or_absolute.to_path_buf()
@@ -139,11 +139,43 @@ pub fn resolve_inside(root: &Path, relative_or_absolute: &Path) -> Result<PathBu
             other => normalized.push(other.as_os_str()),
         }
     }
-    if normalized.starts_with(root) {
+    if !normalized.starts_with(root) {
+        return Err(ProjectError::OutsideProject(joined));
+    }
+    // Lexikalisch reicht nicht: ein Symlink im Projekt kann nach außen zeigen.
+    // Den längsten existierenden Vorfahren auflösen (Ziel darf noch fehlen, z. B. beim Anlegen).
+    let canon_root = canonical_existing(root);
+    let canon = canonical_existing(&normalized);
+    if canon.starts_with(&canon_root) {
         Ok(normalized)
     } else {
         Err(ProjectError::OutsideProject(joined))
     }
+}
+
+/// Löst den längsten existierenden Vorfahren auf und hängt den fehlenden Rest wieder an.
+fn canonical_existing(p: &Path) -> PathBuf {
+    let mut existing = p;
+    while !existing.exists() {
+        match existing.parent() {
+            Some(parent) => existing = parent,
+            None => break,
+        }
+    }
+    let base = std::fs::canonicalize(existing).unwrap_or_else(|_| existing.to_path_buf());
+    match p.strip_prefix(existing) {
+        Ok(rest) => base.join(rest),
+        Err(_) => base,
+    }
+}
+
+/// Wie `resolve_inside`, lehnt aber den Projektordner selbst ab (für Löschen/Verschieben/Umbenennen).
+pub fn resolve_inside_strict(root: &Path, relative_or_absolute: &Path) -> Result<PathBuf> {
+    let p = resolve_inside(root, relative_or_absolute)?;
+    if p == root {
+        return Err(ProjectError::OutsideProject(p));
+    }
+    Ok(p)
 }
 
 /// Kennung für die Secrets eines Ordners: bei Projekten aus `forge.toml` (wird bei Bedarf angelegt),
@@ -168,6 +200,22 @@ pub fn secrets_id(root: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_inside_blocks_symlink_escape() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("proj");
+        let outside = tmp.path().join("fremd");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("link")).unwrap();
+        assert!(resolve_inside(&root, Path::new("link/x.txt")).is_err());
+        assert!(resolve_inside(&root, Path::new("neu/x.txt")).is_ok());
+        assert!(resolve_inside(&root, Path::new("a.ino")).is_ok());
+        assert!(resolve_inside_strict(&root, &root).is_err());
+        assert!(resolve_inside(&root, &root).is_ok());
+    }
 
     #[test]
     fn open_resolves_symlinks() {

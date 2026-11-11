@@ -211,7 +211,7 @@ export function Shell() {
       <div className="ide-main">
         <div className={`ide-side${layout.sidebarOpen ? "" : " is-collapsed"}`}>
           <div className="fg-sidebar">
-            <ActivityBar items={activityItems} bottom={[{ id: "settings", icon: "settings", label: t.sidebar.settings }]} value={activityValue} onChange={(id) => (id === "settings" ? setDialog({ kind: "settings" }) : onActivity(id))} />
+            <ActivityBar items={activityItems} bottom={[...(project ? [{ id: "home", icon: "folder" as const, label: t.sidebar.home }] : []), { id: "settings", icon: "settings" as const, label: t.sidebar.settings }]} value={activityValue} onChange={(id) => (id === "settings" ? setDialog({ kind: "settings" }) : id === "home" ? void useStore.getState().closeProject() : onActivity(id))} />
             {layout.sidebarOpen ? (
               sidebarView === "library" ? (
                 <ErrorBoundary region><LibraryView /></ErrorBoundary>
