@@ -57,10 +57,27 @@ Secrets: `APPLE_CERTIFICATE` (Developer-ID-Zertifikat als base64-`.p12`), `APPLE
 
 Eine neue Version: `node scripts/sync-version.mjs 0.2.0`, `CHANGELOG.md` ergänzen, committen, `git tag v0.2.0`, pushen.
 
+## Installer (.pkg)
+
+```bash
+pnpm --filter @forge/desktop tauri build --bundles app
+scripts/build-installer.sh
+```
+
+Ergebnis: `target/release/bundle/Forge-<Version>.pkg`. Der Installer zeigt Willkommen, Fortschritt und Abschluss und legt an:
+
+- `Forge.app` in `/Applications`
+- `arduino-cli` (universal) in `/Library/Application Support/Forge/bin`, Forge sucht dort zuerst
+- ESP32-Core: das `postinstall`-Skript installiert ihn als angemeldeter Benutzer nach `~/Library/Arduino15`. Fehlt das Netz, ist das kein Fehler, Forge holt den Core beim ersten Start mit Fortschrittsanzeige nach. Protokoll: `/tmp/forge-installer.log`
+
+Signieren und notarisieren: `INSTALLER_SIGNING_IDENTITY` („Developer ID Installer: …“) sowie `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` setzen. Ohne sie ist das Paket unsigniert (Rechtsklick → Öffnen).
+
+`clangd` bringt der Installer nicht mit (Xcode Command Line Tools).
+
 ## Werkzeuge im Bundle
 
 `forge-desktop --mcp-bridge` ist die stdio-Brücke für Claude Code und steckt in derselben Binärdatei. `arduino-cli`, `clangd` und `fbuild` liegen nicht im Bundle:
 
-- `arduino-cli` wird im PATH gesucht (`brew install arduino-cli`).
+- `arduino-cli` kommt vom Installer, sonst wird der PATH durchsucht (`brew install arduino-cli`).
 - `clangd` kommt von den Xcode Command Line Tools oder Homebrew-LLVM.
 - `fbuild` installiert Forge auf Wunsch selbst in `~/Library/Application Support/cc.forge.ide/tools`.

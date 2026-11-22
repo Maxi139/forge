@@ -1,0 +1,28 @@
+#!/bin/bash
+# Läuft als root nach dem Kopieren der Dateien. Richtet für den angemeldeten Benutzer den
+# ESP32-Core ein. Schlägt das fehl (z. B. kein Netz), ist das kein Fehler: Forge bietet
+# die Einrichtung beim ersten Start mit Fortschrittsanzeige an.
+LOG=/tmp/forge-installer.log
+exec >>"$LOG" 2>&1
+echo "== $(date) Forge postinstall"
+
+CLI="/Library/Application Support/Forge/bin/arduino-cli"
+chmod 755 "$CLI" 2>/dev/null
+xattr -dr com.apple.quarantine "$CLI" "/Applications/Forge.app" 2>/dev/null
+
+USER_NAME="$(stat -f%Su /dev/console)"
+if [ -z "$USER_NAME" ] || [ "$USER_NAME" = "root" ]; then
+  echo "kein Benutzer angemeldet, überspringe Core-Installation"
+  exit 0
+fi
+USER_HOME="$(dscl . -read "/Users/$USER_NAME" NFSHomeDirectory | awk '{print $2}')"
+
+run() { sudo -u "$USER_NAME" -H env HOME="$USER_HOME" "$@"; }
+
+run "$CLI" config init --overwrite >/dev/null 2>&1 || true
+run "$CLI" config add board_manager.additional_urls \
+  "https://espressif.github.io/arduino-esp32/package_esp32_index.json" || true
+run "$CLI" core update-index || { echo "Paketliste nicht ladbar"; exit 0; }
+run "$CLI" core install esp32:esp32 || { echo "ESP32-Core nicht installiert"; exit 0; }
+echo "fertig"
+exit 0

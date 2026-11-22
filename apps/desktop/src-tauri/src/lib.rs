@@ -54,6 +54,16 @@ pub fn run() {
                 if let Ok(dir) = app.path().app_cache_dir() {
                     *state.toolchain.cache_base.lock().unwrap() = Some(dir);
                 }
+                // Eigene Werkzeuge: zuerst die, die der Installer mitbringt, dann die selbst geladenen.
+                {
+                    let mut own = state.toolchain.own_tools.lock().unwrap();
+                    own.push(std::path::PathBuf::from(
+                        "/Library/Application Support/Forge/bin",
+                    ));
+                    if let Some(dir) = store::tools_dir(app.handle()) {
+                        own.push(dir);
+                    }
+                }
                 devices::start_device_watch(app.handle(), &state);
                 mcp::start_if_enabled(app.handle());
                 package::register_quicklook(app.handle());
